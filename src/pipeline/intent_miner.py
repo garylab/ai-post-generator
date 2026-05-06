@@ -113,27 +113,52 @@ async def _mine_forums(seed: str) -> list[RawIntent]:
     return results
 
 
-async def fetch_trend_queries(
+async def fetch_trends(
     seed: str, rising_limit: int = 8, top_limit: int = 5,
-) -> list[tuple[str, float]]:
-    """Pull rising + top related queries from Google Trends.
+) -> tuple[list[tuple[str, float]], list[RawIntent]]:
+    """Single Trends fetch that produces both new seed-keyword candidates AND raw intents.
 
-    Returns list of (query, score) tuples. Score is SerpAPI's `extracted_value`
-    — for rising queries it's the percentage growth (e.g. 450 for "+450%"),
-    for top queries it's a 0-100 popularity index.
+    Returns:
+      (queries, intents) — queries is [(query, score), ...] for the seed_keywords table;
+      intents is [RawIntent, ...] with source='trends' for the intent pipeline.
+
+    Score semantics:
+      - rising: percentage growth (e.g. 450 for "+450%")
+      - top:    0–100 popularity index
     """
     data = await serpapi_client.google_trends(seed)
     related = data.get("related_queries") or {}
-    out: list[tuple[str, float]] = []
+
+    queries: list[tuple[str, float]] = []
+    intents: list[RawIntent] = []
+
     for item in (related.get("rising") or [])[:rising_limit]:
         q = (item.get("query") or "").strip()
-        if q:
-            out.append((q, float(item.get("extracted_value", 0) or 0)))
+        if not q:
+            continue
+        score = float(item.get("extracted_value", 0) or 0)
+        queries.append((q, score))
+        intents.append(RawIntent(
+            title=q,
+            source="trends",
+            source_url=f"trends://{_slugify_url(q)}",
+            volume_hint=min(score / 10, 10) if score else 5,
+        ))
+
     for item in (related.get("top") or [])[:top_limit]:
         q = (item.get("query") or "").strip()
-        if q:
-            out.append((q, float(item.get("extracted_value", 0) or 0)))
-    return out
+        if not q:
+            continue
+        score = float(item.get("extracted_value", 0) or 0)
+        queries.append((q, score))
+        intents.append(RawIntent(
+            title=q,
+            source="trends",
+            source_url=f"trends://{_slugify_url(q)}",
+            volume_hint=min(score / 10, 10) if score else 3,
+        ))
+
+    return queries, intents
 
 
 async def mine_intents(seeds: list[str]) -> list[RawIntent]:

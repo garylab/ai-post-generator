@@ -650,7 +650,7 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
 
     If role_id is given, mines only that role; otherwise mines all enabled roles.
     """
-    from src.pipeline.intent_miner import mine_intents, fetch_trend_queries
+    from src.pipeline.intent_miner import mine_intents, fetch_trends
     from src.pipeline.intent_clusterer import process_intents
 
     log.info("========== Starting intent mining pipeline ==========")
@@ -672,18 +672,22 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
                 log.warning("Role '{}' has no enabled seed keywords — skipping", role.slug)
                 continue
 
-            # 0. Trends expansion: discover related/rising queries from each manual seed,
-            #    persist them as new seed_keywords with source='trends'.
+            # 0. One Trends call per manual seed: persist queries as new
+            #    seed_keywords AND collect them as direct trends-source intents.
+            trends_intents = []
             try:
                 added = 0
                 for seed in manual_seeds:
-                    queries = await fetch_trend_queries(seed)
+                    queries, t_intents = await fetch_trends(seed)
                     for q, score in queries:
                         await db.insert_seed_keyword(role.id, q, source="trends", score=score)
                         added += 1
+                    trends_intents.extend(t_intents)
                 if added:
-                    log.info("[role={}] Trends expansion: +{} keyword candidates "
-                             "(deduped on insert)", role.slug, added)
+                    log.info(
+                        "[role={}] Trends: +{} keyword candidates, +{} direct intents",
+                        role.slug, added, len(trends_intents),
+                    )
                 # Re-fetch keyword list after expansion
                 all_seeds = [
                     k.keyword
@@ -698,7 +702,7 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
                 role.slug, len(all_seeds), batch_id[:8],
             )
 
-            raw_intents = await mine_intents(all_seeds)
+            raw_intents = list(trends_intents) + await mine_intents(all_seeds)
             if not raw_intents:
                 log.warning("[role={}] No intents mined", role.slug)
                 continue

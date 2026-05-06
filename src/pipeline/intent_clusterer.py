@@ -38,8 +38,29 @@ def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 
 
 async def _dedup_exact(intents: list[RawIntent]) -> list[RawIntent]:
-    """Remove empty titles only. Semantic dedup handles true duplicates."""
-    return [i for i in intents if i.title.strip()]
+    """Drop empty titles + dedup by source_url within the batch.
+
+    Two intents with the same source_url are the same finding (e.g. the
+    PAA box "What are the 5 hardest…" pops up under several seed keywords,
+    but its reference link is identical). Different URLs = different
+    findings, even if titles look similar.
+
+    Intents without a source_url pass through unchanged.
+    """
+    seen_urls: set[str] = set()
+    kept: list[RawIntent] = []
+    for i in intents:
+        if not (i.title or "").strip():
+            continue
+        url = (i.source_url or "").strip()
+        if url:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+        kept.append(i)
+    if len(kept) < len(intents):
+        log.info("URL dedup: {} → {} intents", len(intents), len(kept))
+    return kept
 
 
 async def _dedup_semantic(
@@ -215,7 +236,10 @@ async def process_intents(
     embeddings = await embed_texts(titles)
     log.info("Embedded {} intents", len(embeddings))
 
-    # 3. Dedup against existing DB intents (prevents re-mining across runs)
+    # 3. Semantic dedup within this batch (catches near-duplicate phrasings)
+    intents, embeddings = await _dedup_semantic(intents, embeddings)
+
+    # 4. Dedup against existing DB intents (prevents re-mining across runs)
     intents, embeddings = await _dedup_against_db(intents, embeddings)
 
     if not intents:
