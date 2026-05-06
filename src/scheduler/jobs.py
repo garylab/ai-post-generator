@@ -128,9 +128,17 @@ async def stage_research() -> int:
                 cluster=cluster["slug"],
                 score=content_score,
                 intent_id=intent["id"],
-                research_data=research_payload,
+                research_data=research_payload,  # legacy JSONB, still populated for now
                 title_embedding=title_emb,
                 brand_id=cluster.get("brand_id"),
+            )
+
+            # Normalized: synthesis on content + dedup'd source/image rows + links.
+            await db.store_research_for_content(
+                content_id=content_id,
+                synthesis=research.get("synthesis", ""),
+                sources=research.get("sources", []),
+                images=research.get("source_images", []),
             )
 
             await db.mark_intent_covered(intent["id"], content_id)
@@ -626,6 +634,12 @@ async def run_pipeline_for_cluster(cluster_id: int) -> None:
                     row["content_id"], "researched",
                     research_data=research_payload,
                 )
+                await db.store_research_for_content(
+                    content_id=row["content_id"],
+                    synthesis=research.get("synthesis", ""),
+                    sources=research.get("sources", []),
+                    images=research.get("source_images", []),
+                )
                 log.info("Researched '{}' → {}", row["title"], row["content_id"])
             except Exception as exc:
                 log.error("Research failed for content {}: {}", row["content_id"], exc)
@@ -665,7 +679,7 @@ async def intent_mining_pipeline(brand_id: int | None = None) -> None:
             return
 
         for brand in brands:
-            existing = await db.fetch_seed_keywords(brand_id=brand.id, enabled_only=True)
+            existing = await db.fetch_brand_keywords(brand_id=brand.id, enabled_only=True)
             manual_seeds = [k.keyword for k in existing if k.source == "manual"]
             all_seeds = [k.keyword for k in existing]
             if not all_seeds:
@@ -673,14 +687,14 @@ async def intent_mining_pipeline(brand_id: int | None = None) -> None:
                 continue
 
             # 0. One Trends call per manual seed: persist queries as new
-            #    seed_keywords AND collect them as direct trends-source intents.
+            #    brand_keywords AND collect them as direct trends-source intents.
             trends_intents = []
             try:
                 added = 0
                 for seed in manual_seeds:
                     queries, t_intents = await fetch_trends(seed)
                     for q, score in queries:
-                        await db.insert_seed_keyword(brand.id, q, source="trends", score=score)
+                        await db.insert_brand_keyword(brand.id, q, source="trends", score=score)
                         added += 1
                     trends_intents.extend(t_intents)
                 if added:
@@ -691,7 +705,7 @@ async def intent_mining_pipeline(brand_id: int | None = None) -> None:
                 # Re-fetch keyword list after expansion
                 all_seeds = [
                     k.keyword
-                    for k in await db.fetch_seed_keywords(brand_id=brand.id, enabled_only=True)
+                    for k in await db.fetch_brand_keywords(brand_id=brand.id, enabled_only=True)
                 ]
             except Exception as exc:
                 log.warning("[brand={}] Trends expansion failed: {}", brand.slug, exc)

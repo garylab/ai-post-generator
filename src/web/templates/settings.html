@@ -30,8 +30,13 @@
       <tr class="hover:bg-slate-800/30">
         <td class="px-3 py-2 font-mono text-xs">{{ s.key }}</td>
         <td class="px-3 py-2">
-          <form method="post" action="/dashboard/settings/{{ s.id }}/update" class="flex gap-1">
+          <form method="post" action="/dashboard/settings/{{ s.id }}/update" class="flex gap-1 items-start">
+            {% if (s.value|length) > 80 or '\n' in s.value %}
+            <textarea name="value" rows="6"
+                      class="{{ inp }} flex-1 text-xs font-mono leading-relaxed">{{ s.value }}</textarea>
+            {% else %}
             <input type="text" name="value" value="{{ s.value }}" class="{{ inp }} flex-1 text-xs">
+            {% endif %}
             <button class="text-sky-400 hover:underline text-xs px-2">Save</button>
           </form>
         </td>

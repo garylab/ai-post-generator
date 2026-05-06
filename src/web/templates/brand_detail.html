@@ -128,9 +128,9 @@
         {% else %}
         <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-700/40 text-zinc-300">disabled</span>
         {% endif %}
-        <span class="ml-auto text-xs text-muted">id: {{ acc.id }}</span>
+        <span class="ml-auto text-xs text-muted">#{{ loop.index0 }}</span>
       </summary>
-      <form method="post" action="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/update" class="mt-4 space-y-3">
+      <form method="post" action="/dashboard/brands/{{ brand.id }}/accounts/{{ loop.index0 }}/update" class="mt-4 space-y-3">
         <input type="hidden" name="platform" value="{{ acc.platform }}">
         <label class="block">
           <span class="text-xs text-muted">Display name</span>
@@ -149,11 +149,11 @@
         </label>
         <div class="flex gap-2">
           <button type="submit" class="{{ btn_primary }}">Save</button>
-          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/toggle"
+          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ loop.index0 }}/toggle"
                   formmethod="post" class="text-sky-400 hover:underline">
             {{ 'Disable' if acc.enabled else 'Enable' }}
           </button>
-          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/delete"
+          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ loop.index0 }}/delete"
                   formmethod="post" class="text-rose-400 hover:underline ml-auto"
                   onclick="return confirm('Delete account &quot;{{ acc.platform }} / {{ acc.display_name }}&quot;?');">
             Delete

@@ -52,7 +52,7 @@ async def humanize(pkg: ContentPackage) -> ContentPackage:
         user_message=(
             "Rewrite this content to kill all AI patterns. Be aggressive — "
             "if something sounds like an AI wrote it, change it. "
-            "Keep all <sup>[N]</sup> references exactly as-is. "
+            "Keep all inline <a href> citation links exactly as-is — do not introduce [N] / <sup> markers. "
             "Return ONLY valid JSON, no markdown fences:\n\n" + payload
         ),
         system=system_prompt,

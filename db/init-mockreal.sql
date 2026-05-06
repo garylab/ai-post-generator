@@ -36,13 +36,6 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE tracking_event AS ENUM (
-    'impression', 'click', 'page_view', 'signup', 'share'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
-DO $$ BEGIN
   CREATE TYPE intent_status AS ENUM (
     'pending', 'queued', 'covered', 'refresh_needed'
   );
@@ -158,24 +151,6 @@ CREATE TABLE IF NOT EXISTS publish_logs (
 );
 
 -- ============================================================
--- TABLE: tracking_events
--- Raw inbound events from the tracking webhook (click, signup…).
--- Append-only log; aggregated into performance by the daily cron.
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS tracking_events (
-  id              BIGSERIAL                PRIMARY KEY,
-  content_id      TEXT                     NOT NULL,
-  platform        platform_type,
-  event_type      tracking_event  NOT NULL,
-  referrer        TEXT,
-  user_agent      TEXT,
-  ip_hash         TEXT,
-  metadata        JSONB                    DEFAULT '{}'::jsonb,
-  received_at     TIMESTAMPTZ              NOT NULL DEFAULT NOW()
-);
-
--- ============================================================
 -- TABLE: performance
 -- Aggregated metrics per content × platform window.
 -- ============================================================
@@ -202,50 +177,6 @@ CREATE TABLE IF NOT EXISTS performance (
     UNIQUE (content_id, platform, period_start)
 );
 
--- ============================================================
--- TABLE: ab_results
--- CTA A/B test outcomes per cluster for the learning loop.
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS ab_results (
-  id              SERIAL          PRIMARY KEY,
-  cluster         TEXT            NOT NULL REFERENCES intent_clusters(slug) ON DELETE CASCADE,
-  variant_a_impressions INTEGER   NOT NULL DEFAULT 0,
-  variant_a_clicks     INTEGER   NOT NULL DEFAULT 0,
-  variant_a_signups    INTEGER   NOT NULL DEFAULT 0,
-  variant_b_impressions INTEGER   NOT NULL DEFAULT 0,
-  variant_b_clicks     INTEGER   NOT NULL DEFAULT 0,
-  variant_b_signups    INTEGER   NOT NULL DEFAULT 0,
-  winner          cta_variant,
-  confidence      NUMERIC(5,2)   DEFAULT 0,
-  computed_at     TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT uq_ab_cluster UNIQUE (cluster)
-);
-
--- ============================================================
--- TABLE: dashboard_snapshots
--- Daily snapshots of growth metrics for trend analysis.
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS dashboard_snapshots (
-  id              BIGSERIAL       PRIMARY KEY,
-  snapshot_date   DATE            NOT NULL DEFAULT CURRENT_DATE,
-  total_content   INTEGER         NOT NULL DEFAULT 0,
-  total_published INTEGER         NOT NULL DEFAULT 0,
-  total_clicks    INTEGER         NOT NULL DEFAULT 0,
-  total_signups   INTEGER         NOT NULL DEFAULT 0,
-  overall_ctr     NUMERIC(6,2)   NOT NULL DEFAULT 0,
-  overall_conv    NUMERIC(6,2)   NOT NULL DEFAULT 0,
-  top_cluster     TEXT,
-  top_platform    TEXT,
-  cluster_breakdown JSONB         NOT NULL DEFAULT '[]'::jsonb,
-  platform_breakdown JSONB        NOT NULL DEFAULT '[]'::jsonb,
-  ab_summary      JSONB           NOT NULL DEFAULT '{}'::jsonb,
-  created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT uq_snapshot_date UNIQUE (snapshot_date)
-);
 
 -- ============================================================
 -- INDEXES
@@ -279,11 +210,6 @@ CREATE INDEX IF NOT EXISTS idx_publish_platform     ON publish_logs (platform);
 CREATE INDEX IF NOT EXISTS idx_publish_at           ON publish_logs (published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_publish_content_plat ON publish_logs (content_id, platform);
 
--- tracking_events
-CREATE INDEX IF NOT EXISTS idx_track_content        ON tracking_events (content_id);
-CREATE INDEX IF NOT EXISTS idx_track_event          ON tracking_events (event_type);
-CREATE INDEX IF NOT EXISTS idx_track_received       ON tracking_events (received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_track_content_event  ON tracking_events (content_id, event_type);
 
 -- performance
 CREATE INDEX IF NOT EXISTS idx_perf_content         ON performance (content_id);
@@ -408,25 +334,15 @@ CREATE TABLE IF NOT EXISTS brands (
   telegram_bot_token TEXT NOT NULL DEFAULT '',
   telegram_chat_id   TEXT NOT NULL DEFAULT '',
   telegram_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Per-brand social accounts: [{"platform","display_name","credentials","enabled"}, ...]
+  social_accounts    JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS brand_social_accounts (
-  id            SERIAL PRIMARY KEY,
-  brand_id       INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
-  platform      TEXT NOT NULL,
-  display_name  TEXT NOT NULL DEFAULT '',
-  credentials   JSONB NOT NULL DEFAULT '{}'::jsonb,
-  enabled       BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (brand_id, platform, display_name)
-);
-CREATE INDEX IF NOT EXISTS idx_brand_social_brand ON brand_social_accounts(brand_id);
-
 -- ============================================================
--- SEED KEYWORDS (manageable from dashboard, scoped per brand)
+-- BRAND KEYWORDS (manageable from dashboard, scoped per brand)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS seed_keywords (
+CREATE TABLE IF NOT EXISTS brand_keywords (
   id SERIAL PRIMARY KEY,
   brand_id INTEGER REFERENCES brands(id) ON DELETE CASCADE,
   keyword TEXT NOT NULL,
@@ -436,21 +352,12 @@ CREATE TABLE IF NOT EXISTS seed_keywords (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (brand_id, keyword)
 );
-CREATE INDEX IF NOT EXISTS idx_seed_kw_brand ON seed_keywords(brand_id);
-CREATE INDEX IF NOT EXISTS idx_seed_kw_source ON seed_keywords(source);
+CREATE INDEX IF NOT EXISTS idx_brand_keywords_brand ON brand_keywords(brand_id);
+CREATE INDEX IF NOT EXISTS idx_brand_keywords_source ON brand_keywords(source);
 
 -- ============================================================
--- PROMPTS & SETTINGS (admin-managed)
+-- SETTINGS (admin-managed key-value store; also stores prompts)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS prompts (
-  id          SERIAL PRIMARY KEY,
-  key         TEXT UNIQUE NOT NULL,
-  name        TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  body        TEXT NOT NULL,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS settings (
   id          SERIAL PRIMARY KEY,
   key         TEXT UNIQUE NOT NULL,
@@ -501,14 +408,37 @@ CREATE INDEX IF NOT EXISTS idx_brands_created_at ON brands(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updated_at DESC);
 
--- seed_keywords / brand_social_accounts
-CREATE INDEX IF NOT EXISTS idx_seed_kw_created_at ON seed_keywords(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bsa_created_at ON brand_social_accounts(created_at DESC);
+-- brand_keywords
+CREATE INDEX IF NOT EXISTS idx_brand_keywords_created_at ON brand_keywords(created_at DESC);
 
--- ab_results
-CREATE INDEX IF NOT EXISTS idx_ab_confidence ON ab_results(confidence DESC);
-CREATE INDEX IF NOT EXISTS idx_ab_computed_at ON ab_results(computed_at DESC);
 
--- prompts / settings
-CREATE INDEX IF NOT EXISTS idx_prompts_updated_at ON prompts(updated_at DESC);
+-- settings
 CREATE INDEX IF NOT EXISTS idx_settings_updated_at ON settings(updated_at DESC);
+
+-- ============================================================
+-- CONTENT RESOURCES (URL-deduped). Images live on the resource as a JSONB array.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS content_resources (
+  id          SERIAL PRIMARY KEY,
+  url         TEXT UNIQUE NOT NULL,
+  title       TEXT NOT NULL DEFAULT '',
+  snippet     TEXT NOT NULL DEFAULT '',
+  full_text   TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  domain      TEXT NOT NULL DEFAULT '',
+  -- Images discovered on this source page: [{"url": "...", "alt": "..."}, ...]
+  images      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_content_resources_kind   ON content_resources(kind);
+CREATE INDEX IF NOT EXISTS idx_content_resources_domain ON content_resources(domain);
+
+CREATE TABLE IF NOT EXISTS content_resource_relation (
+  content_id  TEXT    NOT NULL REFERENCES content(content_id)        ON DELETE CASCADE,
+  resource_id INTEGER NOT NULL REFERENCES content_resources(id) ON DELETE CASCADE,
+  position    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (content_id, resource_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crr_resource ON content_resource_relation(resource_id);
+
+ALTER TABLE content ADD COLUMN IF NOT EXISTS synthesis TEXT NOT NULL DEFAULT '';

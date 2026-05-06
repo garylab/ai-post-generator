@@ -41,8 +41,7 @@
       <div>updated {{ active.updated_at.strftime('%Y-%m-%d %H:%M') if active.updated_at else '' }}</div>
     </div>
   </div>
-  <form method="post" action="/dashboard/prompts/{{ active_prompt.id }}/update" class="space-y-3">
-    <input type="hidden" name="key" value="{{ active_prompt.key }}">
+  <form method="post" action="/dashboard/prompts/{{ active_prompt.key }}/update" class="space-y-3">
     <textarea name="body" rows="24"
               class="{{ inp }} w-full font-mono text-xs leading-relaxed">{{ active_prompt.body }}</textarea>
     <div class="flex justify-end gap-2">

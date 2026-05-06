@@ -11,15 +11,15 @@ from sqlalchemy import text
 from src.storage.database import (
     delete_brand,
     delete_brand_account,
-    delete_seed_keyword,
+    delete_brand_keyword,
     delete_setting,
     delete_user,
     fetch_content,
-    fetch_prompts,
     fetch_brand,
     fetch_brand_accounts,
     fetch_brands,
-    fetch_seed_keywords,
+    fetch_brand_keywords,
+    fetch_setting,
     fetch_settings,
     fetch_user,
     fetch_user_by_email,
@@ -27,11 +27,10 @@ from src.storage.database import (
     get_session,
     insert_brand,
     insert_brand_account,
-    insert_seed_keyword,
+    insert_brand_keyword,
     insert_user,
     toggle_brand_account,
-    toggle_seed_keyword,
-    update_prompt_body,
+    toggle_brand_keyword,
     update_brand,
     update_brand_account,
     update_setting_value,
@@ -420,8 +419,8 @@ async def brands_list(
     counts = await _fetch(
         """
         SELECT r.id,
-               (SELECT COUNT(*) FROM seed_keywords WHERE brand_id = r.id) AS keyword_count,
-               (SELECT COUNT(*) FROM brand_social_accounts WHERE brand_id = r.id) AS account_count,
+               (SELECT COUNT(*) FROM brand_keywords WHERE brand_id = r.id) AS keyword_count,
+               jsonb_array_length(COALESCE(r.social_accounts, '[]'::jsonb)) AS account_count,
                (SELECT COUNT(*) FROM content WHERE brand_id = r.id) AS content_count
         FROM brands r
         """
@@ -490,7 +489,7 @@ async def brand_tab_accounts(request: Request, brand_id: int):
 @router.get("/dashboard/brands/{brand_id}/keywords", response_class=HTMLResponse)
 async def brand_tab_keywords(request: Request, brand_id: int):
     brand = await _brand_or_404(brand_id)
-    keywords = await fetch_seed_keywords(brand_id=brand_id)
+    keywords = await fetch_brand_keywords(brand_id=brand_id)
     return templates.TemplateResponse(
         request, "brand_detail.html",
         {"brand": brand, "active_tab": "keywords", "keywords": keywords},
@@ -550,19 +549,19 @@ async def brands_delete(brand_id: int):
 async def brand_keyword_add(brand_id: int, keyword: str = Form(...)):
     kw = keyword.strip()
     if kw:
-        await insert_seed_keyword(brand_id, kw)
+        await insert_brand_keyword(brand_id, kw)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
 @router.post("/dashboard/brands/{brand_id}/keywords/{keyword_id}/toggle")
 async def brand_keyword_toggle(brand_id: int, keyword_id: int):
-    await toggle_seed_keyword(keyword_id)
+    await toggle_brand_keyword(keyword_id)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
 @router.post("/dashboard/brands/{brand_id}/keywords/{keyword_id}/delete")
 async def brand_keyword_delete(brand_id: int, keyword_id: int):
-    await delete_seed_keyword(keyword_id)
+    await delete_brand_keyword(keyword_id)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
@@ -580,15 +579,16 @@ async def brand_account_add(brand_id: int, request: Request):
     return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/update")
-async def brand_account_update(brand_id: int, account_id: int, request: Request):
+@router.post("/dashboard/brands/{brand_id}/accounts/{idx}/update")
+async def brand_account_update(brand_id: int, idx: int, request: Request):
     form = await request.form()
     platform = (form.get("platform") or "").strip()
     if platform not in PLATFORM_FIELDS:
         raise HTTPException(400, f"Unknown platform: {platform}")
     creds = {key: (form.get(f"cred_{key}") or "").strip() for key, _ in PLATFORM_FIELDS[platform]}
     await update_brand_account(
-        account_id,
+        brand_id, idx,
+        platform=platform,
         display_name=(form.get("display_name") or "primary").strip() or "primary",
         credentials=creds,
         enabled=bool(form.get("enabled")),
@@ -596,15 +596,15 @@ async def brand_account_update(brand_id: int, account_id: int, request: Request)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/toggle")
-async def brand_account_toggle(brand_id: int, account_id: int):
-    await toggle_brand_account(account_id)
+@router.post("/dashboard/brands/{brand_id}/accounts/{idx}/toggle")
+async def brand_account_toggle(brand_id: int, idx: int):
+    await toggle_brand_account(brand_id, idx)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/delete")
-async def brand_account_delete(brand_id: int, account_id: int):
-    await delete_brand_account(account_id)
+@router.post("/dashboard/brands/{brand_id}/accounts/{idx}/delete")
+async def brand_account_delete(brand_id: int, idx: int):
+    await delete_brand_account(brand_id, idx)
     return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
@@ -806,57 +806,78 @@ async def users_delete(
     return RedirectResponse("/dashboard/users", status_code=303)
 
 
-# ── Prompts (admin only) ──────────────────────────────────────
+# ── Prompts (admin only) — view/edit specific keys in the settings table ────
+
+# (key, label, description) for the prompts shown on the /dashboard/prompts page.
+_PROMPT_KEYS: list[tuple[str, str, str]] = [
+    ("content_system", "Content writer (Claude system)",
+     "System prompt for the article-writing stage."),
+    ("humanize_system", "Humanize pass (Claude system)",
+     "System prompt for the humanization rewrite step."),
+    ("wechat_system", "WeChat converter (Claude system)",
+     "System prompt for converting articles to WeChat format."),
+]
+
 
 async def _seed_known_prompts() -> None:
-    """Make sure the known system prompts are present in the DB."""
+    """Ensure each known prompt has a settings row, seeded from the hardcoded fallback."""
     from src.content.prompt_store import get_prompt
     from src.content.prompts import CONTENT_SYSTEM, HUMANIZE_SYSTEM, WECHAT_SYSTEM
-    await get_prompt("content_system", CONTENT_SYSTEM,
-                     name="Content writer (Claude system)",
-                     description="System prompt for the article-writing stage.")
-    await get_prompt("humanize_system", HUMANIZE_SYSTEM,
-                     name="Humanize pass (Claude system)",
-                     description="System prompt for the humanization rewrite step.")
-    await get_prompt("wechat_system", WECHAT_SYSTEM,
-                     name="WeChat converter (Claude system)",
-                     description="System prompt for converting articles to WeChat format.")
+    fallbacks = {
+        "content_system": CONTENT_SYSTEM,
+        "humanize_system": HUMANIZE_SYSTEM,
+        "wechat_system": WECHAT_SYSTEM,
+    }
+    for key, _name, description in _PROMPT_KEYS:
+        await get_prompt(key, fallbacks[key], description=description)
+
+
+async def _fetch_known_prompts() -> list[dict]:
+    """Return the prompts (label, description, body, updated_at) for the UI."""
+    out: list[dict] = []
+    for key, label, description in _PROMPT_KEYS:
+        row = await fetch_setting(key)
+        out.append({
+            "key": key,
+            "name": label,
+            "description": description,
+            "body": row.value if row else "",
+            "updated_at": row.updated_at if row else None,
+        })
+    return out
 
 
 @router.get("/dashboard/prompts", response_class=HTMLResponse)
 async def prompts_root(_admin = Depends(require_admin)):
     await _seed_known_prompts()
-    rows = await fetch_prompts()
-    if not rows:
-        # No prompts at all — render an empty state template
-        # (re-use the keyed page with no active prompt)
-        return RedirectResponse("/dashboard/prompts/content_system", status_code=303)
-    return RedirectResponse(f"/dashboard/prompts/{rows[0].key}", status_code=303)
+    return RedirectResponse(f"/dashboard/prompts/{_PROMPT_KEYS[0][0]}", status_code=303)
 
 
 @router.get("/dashboard/prompts/{key}", response_class=HTMLResponse)
 async def prompts_tab(request: Request, key: str, _admin = Depends(require_admin)):
     await _seed_known_prompts()
-    rows = await fetch_prompts()
-    active_prompt = next((p for p in rows if p.key == key), None)
-    if not active_prompt and rows:
-        return RedirectResponse(f"/dashboard/prompts/{rows[0].key}", status_code=303)
+    rows = await _fetch_known_prompts()
+    active_prompt = next((p for p in rows if p["key"] == key), None)
+    if not active_prompt:
+        return RedirectResponse(f"/dashboard/prompts/{rows[0]['key']}", status_code=303)
     return templates.TemplateResponse(
         request, "prompts.html",
         {"rows": rows, "active_prompt": active_prompt, "active_key": key},
     )
 
 
-@router.post("/dashboard/prompts/{prompt_id}/update")
+@router.post("/dashboard/prompts/{key}/update")
 async def prompts_update(
-    prompt_id: int,
+    key: str,
     body: str = Form(...),
-    key: str = Form(...),
     _admin = Depends(require_admin),
 ):
     from src.content import prompt_store
-    await update_prompt_body(prompt_id, body)
-    prompt_store.invalidate()
+    # Look up description so we don't blank it out
+    meta = next((m for m in _PROMPT_KEYS if m[0] == key), None)
+    description = meta[2] if meta else ""
+    await upsert_setting(key, body, description)
+    prompt_store.invalidate(key)
     return RedirectResponse(f"/dashboard/prompts/{key}", status_code=303)
 
 

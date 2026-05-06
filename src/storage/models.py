@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -70,14 +69,6 @@ class CtaVariant(str, Enum):
     B = "B"
 
 
-class TrackingEventType(str, Enum):
-    impression = "impression"
-    click = "click"
-    page_view = "page_view"
-    signup = "signup"
-    share = "share"
-
-
 class IntentStatus(str, Enum):
     pending = "pending"
     queued = "queued"
@@ -97,7 +88,6 @@ _t_content_status = SAEnum(ContentStatus, name="content_status", create_type=Fal
 _t_priority = SAEnum(Priority, name="priority_level", create_type=False)
 _t_platform = SAEnum(Platform, name="platform_type", create_type=False)
 _t_cta = SAEnum(CtaVariant, name="cta_variant", create_type=False)
-_t_event = SAEnum(TrackingEventType, name="tracking_event", create_type=False)
 _t_intent_status = SAEnum(IntentStatus, name="intent_status", create_type=False)
 _t_cluster_status = SAEnum(IntentClusterStatus, name="intent_cluster_status", create_type=False)
 
@@ -224,22 +214,6 @@ class PublishLogRow(Base):
     )
 
 
-class TrackingEventRow(Base):
-    __tablename__ = "tracking_events"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    content_id: Mapped[str] = mapped_column(Text, nullable=False)
-    platform = mapped_column(_t_platform)
-    event_type = mapped_column(_t_event, nullable=False)
-    referrer: Mapped[str | None] = mapped_column(Text)
-    user_agent: Mapped[str | None] = mapped_column(Text)
-    ip_hash: Mapped[str | None] = mapped_column(Text)
-    metadata_ = mapped_column("metadata", JSONB, server_default=sa_text("'{}'::jsonb"))
-    received_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
-    )
-
-
 class PerformanceRow(Base):
     __tablename__ = "performance"
     __table_args__ = (
@@ -273,38 +247,18 @@ class PerformanceRow(Base):
     )
 
 
-class AbResultRow(Base):
-    __tablename__ = "ab_results"
-    __table_args__ = (
-        UniqueConstraint("cluster", name="uq_ab_cluster"),
-    )
+class ContentResourceRow(Base):
+    __tablename__ = "content_resources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    cluster: Mapped[str] = mapped_column(
-        Text, ForeignKey("intent_clusters.slug", ondelete="CASCADE"), nullable=False,
-    )
-    variant_a_impressions: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    variant_a_clicks: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    variant_a_signups: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    variant_b_impressions: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    variant_b_clicks: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    variant_b_signups: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    winner = mapped_column(_t_cta)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), server_default=sa_text("0"))
-    computed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
-    )
-
-
-class PromptRow(Base):
-    __tablename__ = "prompts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
+    url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    snippet: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    full_text: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    domain: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    images = mapped_column(JSONB, nullable=False, server_default=sa_text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
     )
 
@@ -347,34 +301,16 @@ class BrandRow(Base):
     telegram_bot_token: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     telegram_chat_id: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("FALSE"))
+    social_accounts = mapped_column(JSONB, nullable=False, server_default=sa_text("'[]'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
     )
 
 
-class BrandSocialAccountRow(Base):
-    __tablename__ = "brand_social_accounts"
+class BrandKeywordRow(Base):
+    __tablename__ = "brand_keywords"
     __table_args__ = (
-        UniqueConstraint("brand_id", "platform", "display_name", name="uq_brand_platform_name"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    brand_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("brands.id", ondelete="CASCADE"), nullable=False,
-    )
-    platform: Mapped[str] = mapped_column(Text, nullable=False)
-    display_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
-    credentials = mapped_column(JSONB, nullable=False, server_default=sa_text("'{}'::jsonb"))
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("TRUE"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
-    )
-
-
-class SeedKeywordRow(Base):
-    __tablename__ = "seed_keywords"
-    __table_args__ = (
-        UniqueConstraint("brand_id", "keyword", name="uq_brand_keyword"),
+        UniqueConstraint("brand_id", "keyword", name="uq_brand_keywords_brand_keyword"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -385,30 +321,6 @@ class SeedKeywordRow(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("'manual'"))
     score: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("TRUE"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
-    )
-
-
-class DashboardSnapshotRow(Base):
-    __tablename__ = "dashboard_snapshots"
-    __table_args__ = (
-        UniqueConstraint("snapshot_date", name="uq_snapshot_date"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, server_default=sa_text("CURRENT_DATE"))
-    total_content: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    total_published: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    total_clicks: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    total_signups: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
-    overall_ctr: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False, server_default=sa_text("0"))
-    overall_conv: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False, server_default=sa_text("0"))
-    top_cluster: Mapped[str | None] = mapped_column(Text)
-    top_platform: Mapped[str | None] = mapped_column(Text)
-    cluster_breakdown = mapped_column(JSONB, nullable=False, server_default=sa_text("'[]'::jsonb"))
-    platform_breakdown = mapped_column(JSONB, nullable=False, server_default=sa_text("'[]'::jsonb"))
-    ab_summary = mapped_column(JSONB, nullable=False, server_default=sa_text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
     )
@@ -498,15 +410,18 @@ class _ORMConfig:
     """Marker — children use ConfigDict(from_attributes=True) for ORM hydration."""
 
 
-class Prompt(BaseModel):
+class ContentResource(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    key: str
-    name: str
-    description: str = ""
-    body: str
-    updated_at: datetime
+    url: str
+    title: str = ""
+    snippet: str = ""
+    full_text: str = ""
+    kind: str = ""
+    domain: str = ""
+    images: list[dict] = Field(default_factory=list)
+    created_at: datetime
 
 
 class Setting(BaseModel):
@@ -541,22 +456,20 @@ class Brand(BaseModel):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     telegram_enabled: bool = False
+    social_accounts: list[dict] = Field(default_factory=list)
     created_at: datetime
 
 
 class BrandSocialAccount(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """One element of brands.social_accounts (no PK; identity is array index)."""
 
-    id: int
-    brand_id: int
     platform: str
     display_name: str = ""
     credentials: dict = Field(default_factory=dict)
     enabled: bool = True
-    created_at: datetime
 
 
-class SeedKeyword(BaseModel):
+class BrandKeyword(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

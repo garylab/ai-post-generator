@@ -18,14 +18,13 @@ from src.storage.models import (
     IntentRow,
     PerformanceRow,
     PublishLogRow,
-    Prompt,
-    PromptRow,
+    ContentResource,
+    ContentResourceRow,
     Brand,
     BrandRow,
     BrandSocialAccount,
-    BrandSocialAccountRow,
-    SeedKeyword,
-    SeedKeywordRow,
+    BrandKeyword,
+    BrandKeywordRow,
     Setting,
     SettingRow,
     User,
@@ -769,27 +768,27 @@ async def fetch_intent_stats() -> dict:
         return dict(row) if row else {}
 
 
-async def fetch_seed_keywords(
+async def fetch_brand_keywords(
     brand_id: int | None = None, enabled_only: bool = False,
-) -> list[SeedKeyword]:
+) -> list[BrandKeyword]:
     async with get_session() as session:
-        stmt = select(SeedKeywordRow)
+        stmt = select(BrandKeywordRow)
         if brand_id is not None:
-            stmt = stmt.where(SeedKeywordRow.brand_id == brand_id)
+            stmt = stmt.where(BrandKeywordRow.brand_id == brand_id)
         if enabled_only:
-            stmt = stmt.where(SeedKeywordRow.enabled.is_(True))
-        stmt = stmt.order_by(SeedKeywordRow.created_at.desc())
+            stmt = stmt.where(BrandKeywordRow.enabled.is_(True))
+        stmt = stmt.order_by(BrandKeywordRow.created_at.desc())
         result = await session.execute(stmt)
-        return [SeedKeyword.model_validate(r) for r in result.scalars().all()]
+        return [BrandKeyword.model_validate(r) for r in result.scalars().all()]
 
 
-async def insert_seed_keyword(
+async def insert_brand_keyword(
     brand_id: int, keyword: str, source: str = "manual", score: float | None = None,
 ) -> None:
     async with get_session() as session:
         # Insert if missing; if it exists, refresh the score so the latest trends value wins
         stmt = (
-            pg_insert(SeedKeywordRow)
+            pg_insert(BrandKeywordRow)
             .values(brand_id=brand_id, keyword=keyword, source=source, score=score, enabled=True)
         )
         if score is not None:
@@ -803,19 +802,19 @@ async def insert_seed_keyword(
         await session.commit()
 
 
-async def toggle_seed_keyword(keyword_id: int) -> None:
+async def toggle_brand_keyword(keyword_id: int) -> None:
     async with get_session() as session:
         await session.execute(
-            text("UPDATE seed_keywords SET enabled = NOT enabled WHERE id = :id"),
+            text("UPDATE brand_keywords SET enabled = NOT enabled WHERE id = :id"),
             {"id": keyword_id},
         )
         await session.commit()
 
 
-async def delete_seed_keyword(keyword_id: int) -> None:
+async def delete_brand_keyword(keyword_id: int) -> None:
     async with get_session() as session:
         await session.execute(
-            text("DELETE FROM seed_keywords WHERE id = :id"), {"id": keyword_id}
+            text("DELETE FROM brand_keywords WHERE id = :id"), {"id": keyword_id}
         )
         await session.commit()
 
@@ -882,107 +881,202 @@ async def delete_brand(brand_id: int) -> None:
         await session.commit()
 
 
-# ── Brand Social Accounts ────────────────────────────────────────
+# ── Brand Social Accounts (stored as JSONB array on brands.social_accounts) ──
+
+async def _load_accounts(session, brand_id: int) -> list[dict]:
+    row = (await session.execute(
+        select(BrandRow.social_accounts).where(BrandRow.id == brand_id)
+    )).first()
+    return list(row[0] or []) if row else []
+
+
+async def _save_accounts(session, brand_id: int, accounts: list[dict]) -> None:
+    await session.execute(
+        update(BrandRow).where(BrandRow.id == brand_id).values(social_accounts=accounts)
+    )
+
 
 async def fetch_brand_accounts(
     brand_id: int, enabled_only: bool = False,
 ) -> list[BrandSocialAccount]:
     async with get_session() as session:
-        stmt = select(BrandSocialAccountRow).where(BrandSocialAccountRow.brand_id == brand_id)
-        if enabled_only:
-            stmt = stmt.where(BrandSocialAccountRow.enabled.is_(True))
-        stmt = stmt.order_by(BrandSocialAccountRow.platform, BrandSocialAccountRow.display_name)
-        result = await session.execute(stmt)
-        return [BrandSocialAccount.model_validate(r) for r in result.scalars().all()]
+        accounts = await _load_accounts(session, brand_id)
+    out = [BrandSocialAccount.model_validate(a) for a in accounts]
+    if enabled_only:
+        out = [a for a in out if a.enabled]
+    return out
 
 
 async def insert_brand_account(
-    brand_id: int, platform: str, display_name: str, credentials: dict
+    brand_id: int, platform: str, display_name: str, credentials: dict,
 ) -> None:
+    """Append a new account, or upsert if (platform, display_name) already exists."""
     async with get_session() as session:
-        stmt = (
-            pg_insert(BrandSocialAccountRow)
-            .values(
-                brand_id=brand_id,
-                platform=platform,
-                display_name=display_name,
-                credentials=credentials,
-                enabled=True,
-            )
-            .on_conflict_do_update(
-                index_elements=["brand_id", "platform", "display_name"],
-                set_={"credentials": credentials, "enabled": True},
-            )
-        )
-        await session.execute(stmt)
+        accounts = await _load_accounts(session, brand_id)
+        for a in accounts:
+            if a.get("platform") == platform and a.get("display_name") == display_name:
+                a["credentials"] = credentials
+                a["enabled"] = True
+                break
+        else:
+            accounts.append({
+                "platform": platform,
+                "display_name": display_name,
+                "credentials": credentials,
+                "enabled": True,
+            })
+        await _save_accounts(session, brand_id, accounts)
         await session.commit()
 
 
-async def update_brand_account(account_id: int, **fields: Any) -> None:
+async def update_brand_account(brand_id: int, idx: int, **fields: Any) -> None:
+    """Update fields of brand.social_accounts[idx]."""
     if not fields:
         return
     async with get_session() as session:
-        await session.execute(
-            update(BrandSocialAccountRow).where(BrandSocialAccountRow.id == account_id).values(**fields)
-        )
+        accounts = await _load_accounts(session, brand_id)
+        if 0 <= idx < len(accounts):
+            accounts[idx] = {**accounts[idx], **fields}
+            await _save_accounts(session, brand_id, accounts)
         await session.commit()
 
 
-async def toggle_brand_account(account_id: int) -> None:
+async def toggle_brand_account(brand_id: int, idx: int) -> None:
     async with get_session() as session:
-        await session.execute(
-            text("UPDATE role_social_accounts SET enabled = NOT enabled WHERE id = :id"),
-            {"id": account_id},
-        )
+        accounts = await _load_accounts(session, brand_id)
+        if 0 <= idx < len(accounts):
+            accounts[idx]["enabled"] = not bool(accounts[idx].get("enabled", False))
+            await _save_accounts(session, brand_id, accounts)
         await session.commit()
 
 
-async def delete_brand_account(account_id: int) -> None:
+async def delete_brand_account(brand_id: int, idx: int) -> None:
     async with get_session() as session:
-        await session.execute(
-            text("DELETE FROM role_social_accounts WHERE id = :id"), {"id": account_id}
-        )
+        accounts = await _load_accounts(session, brand_id)
+        if 0 <= idx < len(accounts):
+            accounts.pop(idx)
+            await _save_accounts(session, brand_id, accounts)
         await session.commit()
 
 
-# ── Prompts ─────────────────────────────────────────────────────
+# ── Research sources & images (URL-deduped) ────────────────────
 
-async def fetch_prompts() -> list[Prompt]:
+def _domain_of(url: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(url).netloc or "").replace("www.", "")
+    except Exception:
+        return ""
+
+
+def _group_images_by_source(
+    sources: list[dict], images: list[dict],
+) -> dict[str, list[dict]]:
+    """Group image entries under their source page URL.
+
+    Each image dict can carry `source_url` pointing to the page it came from.
+    Returns { source_url: [{"url":..., "alt":...}, ...], ... } deduped per source.
+    """
+    out: dict[str, list[dict]] = {}
+    seen_per_source: dict[str, set[str]] = {}
+    src_urls = {(s.get("url") or "").strip() for s in (sources or [])}
+    for img in images or []:
+        url = (img.get("url") or "").strip()
+        if not url:
+            continue
+        src = (img.get("source_url") or "").strip()
+        if src not in src_urls:
+            continue
+        key = url
+        seen = seen_per_source.setdefault(src, set())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.setdefault(src, []).append({"url": url, "alt": img.get("alt") or ""})
+    return out
+
+
+async def store_research_for_content(
+    content_id: str,
+    synthesis: str,
+    sources: list[dict],
+    images: list[dict],
+) -> None:
+    """Upsert sources by URL (with their per-page images) and link them to a content row."""
+    images_by_src = _group_images_by_source(sources or [], images or [])
+
     async with get_session() as session:
-        result = await session.execute(select(PromptRow).order_by(PromptRow.key))
-        return [Prompt.model_validate(r) for r in result.scalars().all()]
+        # Synthesis goes on content
+        await session.execute(
+            update(ContentRow).where(ContentRow.content_id == content_id)
+            .values(synthesis=synthesis or "")
+        )
 
+        for pos, s in enumerate(sources or []):
+            url = (s.get("url") or "").strip()
+            if not url:
+                continue
+            inline_imgs = s.get("images") or []  # researcher may attach images directly
+            grouped_imgs = images_by_src.get(url, [])
+            # Merge + dedup by image url, prefer inline (often has better alt)
+            merged: list[dict] = []
+            seen: set[str] = set()
+            for entry in list(inline_imgs) + grouped_imgs:
+                u = (entry.get("url") or "").strip()
+                if not u or u in seen:
+                    continue
+                seen.add(u)
+                merged.append({"url": u, "alt": entry.get("alt") or ""})
 
-async def fetch_prompt_by_key(key: str) -> Prompt | None:
-    async with get_session() as session:
-        result = await session.execute(select(PromptRow).where(PromptRow.key == key))
-        row = result.scalar_one_or_none()
-        return Prompt.model_validate(row) if row else None
-
-
-async def upsert_prompt(key: str, name: str, body: str, description: str = "") -> None:
-    """Insert or update a prompt by key."""
-    async with get_session() as session:
-        stmt = (
-            pg_insert(PromptRow)
-            .values(key=key, name=name, body=body, description=description)
-            .on_conflict_do_update(
-                index_elements=["key"],
-                set_={"name": name, "body": body, "description": description,
-                      "updated_at": func.now()},
+            stmt = (
+                pg_insert(ContentResourceRow)
+                .values(
+                    url=url,
+                    title=s.get("title") or "",
+                    snippet=s.get("snippet") or "",
+                    full_text=s.get("full_text") or "",
+                    kind=s.get("type") or s.get("kind") or "",
+                    domain=_domain_of(url),
+                    images=merged,
+                )
             )
-        )
-        await session.execute(stmt)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["url"],
+                set_={
+                    "title":     func.coalesce(func.nullif(stmt.excluded.title, ""),     ContentResourceRow.title),
+                    "snippet":   func.coalesce(func.nullif(stmt.excluded.snippet, ""),   ContentResourceRow.snippet),
+                    "full_text": func.coalesce(func.nullif(stmt.excluded.full_text, ""), ContentResourceRow.full_text),
+                    "kind":      func.coalesce(func.nullif(stmt.excluded.kind, ""),      ContentResourceRow.kind),
+                    "domain":    func.coalesce(func.nullif(stmt.excluded.domain, ""),    ContentResourceRow.domain),
+                    # Replace images outright when the new payload has any; otherwise keep existing
+                    "images": stmt.excluded.images if merged else ContentResourceRow.images,
+                },
+            ).returning(ContentResourceRow.id)
+            sid = (await session.execute(stmt)).scalar_one()
+            await session.execute(
+                text("""
+                    INSERT INTO content_resource_relation (content_id, resource_id, position)
+                    VALUES (:cid, :sid, :pos)
+                    ON CONFLICT (content_id, resource_id) DO NOTHING
+                """),
+                {"cid": content_id, "sid": sid, "pos": pos},
+            )
+
         await session.commit()
 
 
-async def update_prompt_body(prompt_id: int, body: str) -> None:
+async def fetch_content_sources(content_id: str) -> list[ContentResource]:
     async with get_session() as session:
-        await session.execute(
-            update(PromptRow).where(PromptRow.id == prompt_id)
-            .values(body=body, updated_at=func.now())
+        result = await session.execute(
+            text("""
+                SELECT rs.* FROM content_resources rs
+                JOIN content_resource_relation crr ON crr.resource_id = rs.id
+                WHERE crr.content_id = :cid
+                ORDER BY crr.position ASC, rs.id ASC
+            """),
+            {"cid": content_id},
         )
-        await session.commit()
+        return [ContentResource.model_validate(dict(r)) for r in result.mappings().all()]
 
 
 # ── Settings ────────────────────────────────────────────────────

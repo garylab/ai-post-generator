@@ -119,7 +119,7 @@ async def fetch_trends(
     """Single Trends fetch that produces both new seed-keyword candidates AND raw intents.
 
     Returns:
-      (queries, intents) — queries is [(query, score), ...] for the seed_keywords table;
+      (queries, intents) — queries is [(query, score), ...] for the brand_keywords table;
       intents is [RawIntent, ...] with source='trends' for the intent pipeline.
 
     Score semantics:

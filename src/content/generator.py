@@ -40,14 +40,26 @@ def _enforce_nofollow(html: str) -> str:
     )
 
 
-def _move_citations_to_end(html: str) -> str:
-    """Ensure all external citations are in a Sources section at the end, not inline.
+_SUP_REF_RE = re.compile(r"<sup>\s*\[?\s*\d+\s*\]?\s*</sup>", re.IGNORECASE)
+_BARE_NUM_REF_RE = re.compile(r"\s*\[\s*\d+\s*\]")
 
-    If Claude already produced a Sources section, extract any remaining inline
-    external links from the body and merge them into the Sources list.
-    If no Sources section exists, extract all inline external links and build one.
+
+def _strip_numeric_refs(html: str) -> str:
+    """Remove [N] / <sup>[N]</sup> markers — we only want inline link citations."""
+    html = _SUP_REF_RE.sub("", html)
+    html = _BARE_NUM_REF_RE.sub("", html)
+    return html
+
+
+def _move_citations_to_end(html: str) -> str:
+    """Ensure cited external links are summarized in a Sources section at the end.
+
+    Inline <a href> tags stay in place; we just build (or augment) a list at the
+    bottom so readers can see all sources at a glance. We never introduce
+    superscript reference numbers — this strips any the LLM tried to add.
     """
-    # Split off any existing Sources section
+    html = _strip_numeric_refs(html)
+
     sources_match = _SOURCES_SECTION_RE.search(html)
     if sources_match:
         body = html[:sources_match.start()]
@@ -56,47 +68,37 @@ def _move_citations_to_end(html: str) -> str:
         body = html
         sources_html = ""
 
-    # Collect existing sources from the Sources section (ordered, for numbering)
-    existing_refs: list[tuple[str, str]] = []  # (normalized_url, label)
+    # URLs already listed in the Sources section
+    existing_urls: set[str] = set()
     if sources_html:
         for m in _INLINE_LINK_RE.finditer(sources_html):
-            existing_refs.append((m.group(1).rstrip("/"), re.sub(r"<[^>]+>", "", m.group(2)).strip()))
+            existing_urls.add(m.group(1).rstrip("/"))
 
-    # Unified reference list: existing first, then new ones appended
-    all_refs: list[tuple[str, str]] = list(existing_refs)  # (normalized_url, label)
-    all_urls: dict[str, int] = {u: i + 1 for i, (u, _) in enumerate(all_refs)}
-
-    def _replace_inline_link(m: re.Match) -> str:
+    # Collect external inline links from the body, in order, dedup
+    body_urls: list[tuple[str, str]] = []  # (normalized_url, label)
+    seen: set[str] = set(existing_urls)
+    for m in _INLINE_LINK_RE.finditer(body):
         url = m.group(1)
-        text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        if not url.startswith("http"):
+            continue
         try:
             domain = urlparse(url).netloc.replace("www.", "")
         except Exception:
             domain = ""
-
-        if domain in _OWN_DOMAINS or not url.startswith("http"):
-            return m.group(0)
-
+        if domain in _OWN_DOMAINS:
+            continue
         normalized = url.rstrip("/")
-        if normalized not in all_urls:
-            all_refs.append((normalized, text))
-            all_urls[normalized] = len(all_refs)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        body_urls.append((normalized, text))
 
-        idx = all_urls[normalized]
-        return f"{text}<sup>[{idx}]</sup>"
-
-    body = _INLINE_LINK_RE.sub(_replace_inline_link, body)
-
-    new_refs = all_refs[len(existing_refs):]
-
-    if not new_refs and sources_html:
-        return body + sources_html
-
-    if not new_refs and not sources_html:
-        return body
+    if not body_urls:
+        return body + sources_html  # nothing to add; preserve existing list
 
     new_items = ""
-    for norm_url, label in new_refs:
+    for norm_url, label in body_urls:
         display = label or urlparse(norm_url).netloc.replace("www.", "")
         new_items += (
             f'<li><a href="{norm_url}" rel="nofollow noopener noreferrer" '
@@ -104,14 +106,18 @@ def _move_citations_to_end(html: str) -> str:
         )
 
     if sources_html:
-        sources_html = sources_html.replace("</ol>", new_items + "</ol>", 1)
+        # Append to whichever list tag the LLM used (ol or ul)
+        for closing in ("</ul>", "</ol>"):
+            if closing in sources_html:
+                sources_html = sources_html.replace(closing, new_items + closing, 1)
+                break
         return body + sources_html
     else:
         return (
             body
-            + '<h2>References</h2><ol class="references">'
+            + '<h2>Sources</h2><ul class="sources">'
             + new_items
-            + "</ol>"
+            + "</ul>"
         )
 
 
