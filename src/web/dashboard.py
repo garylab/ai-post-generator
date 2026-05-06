@@ -274,7 +274,7 @@ async def intents_list(
     )
     rows = await _fetch(
         f"""
-        SELECT i.id, i.title, i.source, i.status::text AS status,
+        SELECT i.id, i.title, i.source, i.source_url, i.status::text AS status,
                i.priority_score, i.is_pillar, i.created_at,
                i.cluster_id, ic.slug AS cluster_slug, ic.name AS cluster_name
         FROM intents i LEFT JOIN intent_clusters ic ON i.cluster_id = ic.id
@@ -307,26 +307,37 @@ async def cluster_intents_json(cluster_id: int):
     rows = await _fetch(
         """
         SELECT i.id, i.title, i.source, i.status::text AS status,
-               i.priority_score, i.is_pillar, i.created_at
-        FROM intents i WHERE i.cluster_id = :cid
-        ORDER BY i.is_pillar DESC, i.priority_score DESC
+               i.priority_score, i.is_pillar, i.created_at,
+               CASE
+                 WHEN i.embedding IS NOT NULL AND ic.centroid_embedding IS NOT NULL
+                 THEN 1 - (i.embedding <=> ic.centroid_embedding)
+                 ELSE NULL
+               END AS similarity
+        FROM intents i
+        JOIN intent_clusters ic ON ic.id = i.cluster_id
+        WHERE i.cluster_id = :cid
+        ORDER BY similarity DESC NULLS LAST, i.is_pillar DESC, i.priority_score DESC
         """,
         {"cid": cluster_id},
     )
-    # Stringify timestamps for JSON
     for r in rows:
         if r.get("created_at"):
             r["created_at"] = r["created_at"].isoformat()
         if r.get("priority_score") is not None:
             r["priority_score"] = float(r["priority_score"])
+        if r.get("similarity") is not None:
+            r["similarity"] = float(r["similarity"])
     return rows
 
 
 @router.post("/dashboard/clusters/{cluster_id}/generate")
 async def cluster_generate(cluster_id: int):
-    from src.scheduler.jobs import run_pipeline_for_cluster
-    asyncio.create_task(run_pipeline_for_cluster(cluster_id))
-    return RedirectResponse("/dashboard/clusters", status_code=303)
+    """Synchronously enqueue content rows, then run the background pipeline."""
+    from src.scheduler.jobs import enqueue_cluster, run_pipeline_for_cluster
+    result = await enqueue_cluster(cluster_id)
+    if result["queued"] > 0:
+        asyncio.create_task(run_pipeline_for_cluster(cluster_id))
+    return RedirectResponse("/dashboard/content?status=queued", status_code=303)
 
 
 @router.get("/dashboard/clusters", response_class=HTMLResponse)
@@ -791,9 +802,8 @@ async def users_delete(
 
 # ── Prompts (admin only) ──────────────────────────────────────
 
-@router.get("/dashboard/prompts", response_class=HTMLResponse)
-async def prompts_list(request: Request, _admin = Depends(require_admin)):
-    # Trigger the seed-on-first-read for known prompt keys so they appear in the table
+async def _seed_known_prompts() -> None:
+    """Make sure the known system prompts are present in the DB."""
     from src.content.prompt_store import get_prompt
     from src.content.prompts import CONTENT_SYSTEM, HUMANIZE_SYSTEM, WECHAT_SYSTEM
     await get_prompt("content_system", CONTENT_SYSTEM,
@@ -806,26 +816,51 @@ async def prompts_list(request: Request, _admin = Depends(require_admin)):
                      name="WeChat converter (Claude system)",
                      description="System prompt for converting articles to WeChat format.")
 
+
+@router.get("/dashboard/prompts", response_class=HTMLResponse)
+async def prompts_root(_admin = Depends(require_admin)):
+    await _seed_known_prompts()
     rows = await fetch_prompts()
-    return templates.TemplateResponse(request, "prompts.html", {"rows": rows})
+    if not rows:
+        # No prompts at all — render an empty state template
+        # (re-use the keyed page with no active prompt)
+        return RedirectResponse("/dashboard/prompts/content_system", status_code=303)
+    return RedirectResponse(f"/dashboard/prompts/{rows[0].key}", status_code=303)
+
+
+@router.get("/dashboard/prompts/{key}", response_class=HTMLResponse)
+async def prompts_tab(request: Request, key: str, _admin = Depends(require_admin)):
+    await _seed_known_prompts()
+    rows = await fetch_prompts()
+    active_prompt = next((p for p in rows if p.key == key), None)
+    if not active_prompt and rows:
+        return RedirectResponse(f"/dashboard/prompts/{rows[0].key}", status_code=303)
+    return templates.TemplateResponse(
+        request, "prompts.html",
+        {"rows": rows, "active_prompt": active_prompt, "active_key": key},
+    )
 
 
 @router.post("/dashboard/prompts/{prompt_id}/update")
 async def prompts_update(
     prompt_id: int,
     body: str = Form(...),
+    key: str = Form(...),
     _admin = Depends(require_admin),
 ):
     from src.content import prompt_store
     await update_prompt_body(prompt_id, body)
-    prompt_store.invalidate()  # drop cache so next read sees new body
-    return RedirectResponse("/dashboard/prompts", status_code=303)
+    prompt_store.invalidate()
+    return RedirectResponse(f"/dashboard/prompts/{key}", status_code=303)
 
 
 # ── Settings (admin only) ─────────────────────────────────────
 
 @router.get("/dashboard/settings", response_class=HTMLResponse)
 async def settings_list(request: Request, _admin = Depends(require_admin)):
+    # Ensure all known runtime settings exist as rows so admins can edit them
+    from src import settings_store
+    await settings_store.seed_known()
     rows = await fetch_settings()
     return templates.TemplateResponse(request, "settings.html", {"rows": rows})
 
@@ -837,7 +872,9 @@ async def settings_add(
     description: str = Form(""),
     _admin = Depends(require_admin),
 ):
+    from src import settings_store
     await upsert_setting(key.strip(), value, description.strip())
+    settings_store.invalidate(key.strip())
     return RedirectResponse("/dashboard/settings", status_code=303)
 
 
@@ -847,11 +884,15 @@ async def settings_update(
     value: str = Form(""),
     _admin = Depends(require_admin),
 ):
+    from src import settings_store
     await update_setting_value(setting_id, value)
+    settings_store.invalidate()  # don't know the key from id, drop all
     return RedirectResponse("/dashboard/settings", status_code=303)
 
 
 @router.post("/dashboard/settings/{setting_id}/delete")
 async def settings_delete(setting_id: int, _admin = Depends(require_admin)):
+    from src import settings_store
     await delete_setting(setting_id)
+    settings_store.invalidate()
     return RedirectResponse("/dashboard/settings", status_code=303)

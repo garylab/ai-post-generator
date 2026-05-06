@@ -26,7 +26,15 @@ async def search(engine: str, params: dict | None = None) -> dict:
 
 
 async def google_trends(query: str) -> dict:
-    return await search("google_trends", {"q": query, "date": "now 7-d"})
+    """Fetch related/rising queries from Google Trends.
+
+    The default `data_type=TIMESERIES` returns only `interest_over_time`,
+    not the related queries we use to mine intents. We need
+    `data_type=RELATED_QUERIES` to get `rising_queries` and `related_queries`.
+    """
+    return await search("google_trends", {
+        "q": query, "date": "now 7-d", "data_type": "RELATED_QUERIES",
+    })
 
 
 async def google_news(query: str) -> dict:
@@ -46,7 +54,14 @@ async def youtube_search(query: str) -> dict:
 
 
 async def people_also_ask(query: str) -> dict:
-    return await search("google_related_questions", {"q": query, "gl": "us", "hl": "en"})
+    """Fetch People-Also-Ask boxes for a query.
+
+    SerpAPI surfaces PAA inside the regular `google` engine's
+    `related_questions` array. The dedicated `google_related_questions`
+    engine is for *expanding* a PAA tree (it requires a `next_page_token`),
+    not for the initial fetch.
+    """
+    return await search("google", {"q": query, "gl": "us", "hl": "en"})
 
 
 async def google_forums(query: str) -> dict:

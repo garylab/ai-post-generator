@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 DO $$ BEGIN
   CREATE TYPE content_status AS ENUM (
-    'researched', 'generated', 'enriched',
+    'queued', 'researched', 'generated', 'enriched',
     'draft', 'approved', 'rejected', 'published', 'archived'
   );
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -430,11 +430,14 @@ CREATE TABLE IF NOT EXISTS seed_keywords (
   id SERIAL PRIMARY KEY,
   role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
   keyword TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  score NUMERIC(8, 2),
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (role_id, keyword)
 );
 CREATE INDEX IF NOT EXISTS idx_seed_kw_role ON seed_keywords(role_id);
+CREATE INDEX IF NOT EXISTS idx_seed_kw_source ON seed_keywords(source);
 
 -- ============================================================
 -- PROMPTS & SETTINGS (admin-managed)

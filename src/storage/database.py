@@ -84,6 +84,37 @@ def _to_dict(row: Any) -> dict:
 
 # ── Content Stage Helpers ──────────────────────────────────────
 
+async def insert_queued_content(
+    content_id: str,
+    title: str,
+    cluster: str,
+    score: float,
+    intent_id: int | None,
+    title_embedding: list[float] | None = None,
+    role_id: int | None = None,
+) -> None:
+    """Create a content row at the 'queued' stage — pending research."""
+    async with get_session() as session:
+        stmt = (
+            pg_insert(ContentRow)
+            .values(
+                content_id=content_id,
+                intent_id=intent_id,
+                role_id=role_id,
+                title=title,
+                title_embedding=title_embedding,
+                cluster=cluster,
+                score=score,
+                research_data={},
+                status="queued",
+                priority="medium",
+            )
+            .on_conflict_do_nothing(index_elements=["content_id"])
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
 async def insert_researched_content(
     content_id: str,
     title: str,
@@ -752,13 +783,22 @@ async def fetch_seed_keywords(
         return [SeedKeyword.model_validate(r) for r in result.scalars().all()]
 
 
-async def insert_seed_keyword(role_id: int, keyword: str) -> None:
+async def insert_seed_keyword(
+    role_id: int, keyword: str, source: str = "manual", score: float | None = None,
+) -> None:
     async with get_session() as session:
+        # Insert if missing; if it exists, refresh the score so the latest trends value wins
         stmt = (
             pg_insert(SeedKeywordRow)
-            .values(role_id=role_id, keyword=keyword, enabled=True)
-            .on_conflict_do_nothing(index_elements=["role_id", "keyword"])
+            .values(role_id=role_id, keyword=keyword, source=source, score=score, enabled=True)
         )
+        if score is not None:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["role_id", "keyword"],
+                set_={"score": score},
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(index_elements=["role_id", "keyword"])
         await session.execute(stmt)
         await session.commit()
 

@@ -20,8 +20,7 @@ from src.utils.ai_client import chat_gpt, embed_texts
 from src.storage import database as db
 from loguru import logger as log
 
-CLUSTER_SIM = settings.intent_cluster_similarity
-DEDUP_SIM = settings.intent_dedup_similarity
+from src import settings_store
 
 
 def _slugify(text: str) -> str:
@@ -51,6 +50,7 @@ async def _dedup_semantic(
     if len(intents) <= 1:
         return intents, embeddings
 
+    dedup_sim = await settings_store.get("intent_dedup_similarity")
     matrix = np.array(embeddings, dtype=np.float32)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1, norms)
@@ -64,7 +64,7 @@ async def _dedup_semantic(
         is_dup = False
         if kept_indices:
             sims = normed[i] @ normed[kept_indices].T
-            if np.max(sims) >= DEDUP_SIM:
+            if np.max(sims) >= dedup_sim:
                 is_dup = True
         if not is_dup:
             kept_intents.append(intent)
@@ -80,11 +80,12 @@ async def _dedup_against_db(
     embeddings: list[list[float]],
 ) -> tuple[list[RawIntent], list[list[float]]]:
     """Remove intents that already exist in the DB."""
+    dedup_sim = await settings_store.get("intent_dedup_similarity")
     kept_intents: list[RawIntent] = []
     kept_embs: list[list[float]] = []
 
     for intent, emb in zip(intents, embeddings):
-        existing = await db.find_similar_intent(emb, threshold=DEDUP_SIM)
+        existing = await db.find_similar_intent(emb, threshold=dedup_sim)
         if existing:
             log.debug("DB dedup dropped '{}' (sim to '{}')", intent.title, existing["title"])
         else:
@@ -98,6 +99,7 @@ async def _dedup_against_db(
 def _cluster_intents(
     intents: list[RawIntent],
     embeddings: list[list[float]],
+    cluster_sim: float = 0.70,
 ) -> list[dict]:
     """Greedy centroid-based clustering.
 
@@ -120,7 +122,7 @@ def _cluster_intents(
                 best_sim = sim
                 best_cluster = cl
 
-        if best_cluster is not None and best_sim >= CLUSTER_SIM:
+        if best_cluster is not None and best_sim >= cluster_sim:
             best_cluster["intents"].append(intent)
             best_cluster["embeddings"].append(embeddings[i])
             n = len(best_cluster["intents"])
@@ -224,6 +226,8 @@ async def process_intents(
     for intent in intents:
         intent.volume_hint = max(intent.volume_hint, 0)
 
+    cluster_sim = await settings_store.get("intent_cluster_similarity")
+
     # 6a. First match new intents against EXISTING clusters in the DB (same role).
     #     This prevents micro-cluster fragmentation across runs.
     existing = await db.fetch_clusters_with_centroids(role_id=role_id)
@@ -246,7 +250,7 @@ async def process_intents(
                     best_id = cl["id"]
                     best_centroid = cvec
                     best_count = cl.get("intent_count") or 0
-            if best_id is not None and best_sim >= CLUSTER_SIM:
+            if best_id is not None and best_sim >= cluster_sim:
                 matched_per_cluster.setdefault(best_id, []).append((intent, emb))
             else:
                 leftover_intents.append(intent)
@@ -301,7 +305,7 @@ async def process_intents(
 
     intents = leftover_intents
     embeddings = leftover_embeddings
-    clusters = _cluster_intents(intents, embeddings)
+    clusters = _cluster_intents(intents, embeddings, cluster_sim=cluster_sim)
     log.info("Formed {} new clusters from {} leftover intents", len(clusters), len(intents))
 
     # 7. Name clusters via GPT

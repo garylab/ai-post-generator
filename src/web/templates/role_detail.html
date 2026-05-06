@@ -216,6 +216,8 @@
       <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
         <tr>
           <th class="px-3 py-2 text-left font-medium">Keyword</th>
+          <th class="px-3 py-2 text-left font-medium">Source</th>
+          <th class="px-3 py-2 text-left font-medium" title="Trends score: % growth for rising queries, 0–100 for top">Score</th>
           <th class="px-3 py-2 text-left font-medium">Status</th>
           <th class="px-3 py-2 text-left font-medium">Created</th>
           <th class="px-3 py-2 text-right font-medium">Actions</th>
@@ -225,6 +227,22 @@
         {% for k in keywords %}
         <tr class="hover:bg-slate-800/30">
           <td class="px-3 py-2 font-medium">{{ k.keyword }}</td>
+          <td class="px-3 py-2">
+            {% set src_color = {
+              'manual': 'bg-slate-700/40 text-slate-300',
+              'trends': 'bg-violet-900/40 text-violet-300',
+            }.get(k.source, 'bg-slate-700/40 text-slate-300') %}
+            <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium {{ src_color }}">{{ k.source }}</span>
+          </td>
+          <td class="px-3 py-2">
+            {% if k.score is not none %}
+              {% if k.source == 'trends' %}
+              <span class="text-violet-300 font-mono text-xs">+{{ k.score|int }}%</span>
+              {% else %}
+              <span class="text-slate-300 font-mono text-xs">{{ k.score }}</span>
+              {% endif %}
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           <td class="px-3 py-2">
             {% if k.enabled %}
             <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-900/40 text-emerald-300">enabled</span>
@@ -244,7 +262,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="px-3 py-6 text-center text-muted">No keywords yet.</td></tr>
+        <tr><td colspan="6" class="px-3 py-6 text-center text-muted">No keywords yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

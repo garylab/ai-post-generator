@@ -57,8 +57,6 @@ class Settings(BaseSettings):
 
     # Intent mining
     seed_keywords: str = "AI interview,mock interview,job interview tips,career change,tech layoffs,AI hiring,resume optimization,salary negotiation,remote work tips"
-    intent_cluster_similarity: float = 0.70
-    intent_dedup_similarity: float = 0.88
 
     # Rate limiting
     max_concurrent_api: int = 5

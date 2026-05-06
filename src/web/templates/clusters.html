@@ -61,6 +61,7 @@
         <th class="px-2 py-2 text-left font-medium">Source</th>
         <th class="px-2 py-2 text-left font-medium">Status</th>
         <th class="px-2 py-2 text-left font-medium">Score</th>
+        <th class="px-2 py-2 text-left font-medium" title="Cosine similarity to the cluster centroid">Sim</th>
         <th class="px-2 py-2 text-left font-medium">Pillar</th>
       </tr>
     </thead>
@@ -81,7 +82,7 @@ async function showClusterIntents(clusterId, name) {
     const intents = await resp.json();
     const tbody = document.getElementById('cluster-intents-rows');
     if (!intents.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="px-2 py-4 text-center text-muted">No intents.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="px-2 py-4 text-center text-muted">No intents.</td></tr>';
     } else {
       tbody.innerHTML = intents.map(i => `
         <tr class="hover:bg-slate-800/30">
@@ -89,6 +90,7 @@ async function showClusterIntents(clusterId, name) {
           <td class="px-2 py-1.5 text-muted">${escapeHtml(i.source || '')}</td>
           <td class="px-2 py-1.5"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-700/40 text-slate-300">${escapeHtml(i.status)}</span></td>
           <td class="px-2 py-1.5">${i.priority_score?.toFixed(1) ?? '-'}</td>
+          <td class="px-2 py-1.5 ${simClass(i.similarity)}">${formatSim(i.similarity)}</td>
           <td class="px-2 py-1.5 text-amber-400">${i.is_pillar ? '★' : ''}</td>
         </tr>
       `).join('');
@@ -98,6 +100,17 @@ async function showClusterIntents(clusterId, name) {
   } catch (err) {
     document.getElementById('cluster-intents-loading').textContent = 'Failed to load: ' + err;
   }
+}
+function formatSim(s) {
+  if (s == null) return '<span class="text-muted">—</span>';
+  return (s * 100).toFixed(1) + '%';
+}
+function simClass(s) {
+  if (s == null) return 'text-muted';
+  if (s >= 0.85) return 'text-emerald-300';
+  if (s >= 0.70) return 'text-sky-300';
+  if (s >= 0.55) return 'text-amber-300';
+  return 'text-rose-300';
 }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => (

@@ -38,6 +38,7 @@ class Base(DeclarativeBase):
 # =====================================================================
 
 class ContentStatus(str, Enum):
+    queued = "queued"
     researched = "researched"
     generated = "generated"
     enriched = "enriched"
@@ -381,6 +382,8 @@ class SeedKeywordRow(Base):
         Integer, ForeignKey("roles.id", ondelete="CASCADE"),
     )
     keyword: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("'manual'"))
+    score: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("TRUE"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
@@ -559,5 +562,7 @@ class SeedKeyword(BaseModel):
     id: int
     role_id: int | None = None
     keyword: str
+    source: str = "manual"
+    score: float | None = None
     enabled: bool = True
     created_at: datetime

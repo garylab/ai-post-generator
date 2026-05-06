@@ -6,6 +6,7 @@ import uuid
 
 from src.approval.telegram_bot import send_for_approval
 from src.config import settings
+from src import settings_store
 from src.content.featured_image import generate_featured
 from src.content.generator import generate
 from src.content.humanizer import humanize
@@ -98,7 +99,11 @@ async def stage_research() -> int:
         try:
             title_emb = await embed_text(intent["title"])
             if title_emb:
-                existing = await db.find_similar_content(title_emb, threshold=0.85, days=60)
+                existing = await db.find_similar_content(
+                    title_emb,
+                    threshold=await settings_store.get("content_similar_threshold"),
+                    days=60,
+                )
                 if existing:
                     log.warning("[stage_research] Skipping '{}' — similar to '{}' (sim={:.3f})",
                                 intent["title"], existing["title"], existing["similarity"])
@@ -317,18 +322,32 @@ async def stage_finalize() -> int:
 
 # ── Orchestrator ──────────────────────────────────────────────
 
-async def main_pipeline() -> None:
-    """Run all production stages in sequence.
+async def _drain(stage, label: str, max_passes: int = 30) -> int:
+    """Run `stage` repeatedly until it advances 0 rows or hits the safety cap."""
+    total = 0
+    for i in range(max_passes):
+        n = await stage()
+        total += n
+        if n == 0:
+            break
+    else:
+        log.warning("[{}] Hit safety cap ({} passes) — backlog still draining", label, max_passes)
+    return total
 
-    Each stage independently reads from DB and writes back,
-    so a crash between stages loses no work.
+
+async def main_pipeline() -> None:
+    """Run all production stages until each one drains.
+
+    Each stage's `max_articles_per_run` cap means a single call only advances a
+    few rows. This loop keeps re-running each stage until it returns 0, so a
+    backlog of stuck rows clears in one trigger.
     """
     log.info("========== Starting intent-driven pipeline ==========")
     try:
-        r = await stage_research()
-        g = await stage_generate()
-        e = await stage_enrich()
-        f = await stage_finalize()
+        r = await _drain(stage_research, "stage_research")
+        g = await _drain(stage_generate, "stage_generate")
+        e = await _drain(stage_enrich,   "stage_enrich")
+        f = await _drain(stage_finalize, "stage_finalize")
 
         stats = await db.fetch_intent_stats()
         log.info(
@@ -505,78 +524,117 @@ async def growth_loop() -> None:
 
 # ── Per-cluster pipeline (manual trigger) ─────────────────────
 
-async def run_pipeline_for_cluster(cluster_id: int, max_articles: int | None = None) -> None:
-    """Research + generate + enrich + finalize all pending intents in one cluster."""
+async def _fetch_cluster_meta(cluster_id: int) -> dict | None:
+    from sqlalchemy import text as _t
+    async with db.get_session() as s:
+        row = (await s.execute(_t(
+            "SELECT id, name, slug, role_id FROM intent_clusters WHERE id = :id"
+        ), {"id": cluster_id})).mappings().first()
+    return dict(row) if row else None
+
+
+async def enqueue_cluster(cluster_id: int, max_articles: int | None = None) -> dict:
+    """Synchronously create 'queued' content rows for the cluster's pending intents.
+
+    Performs cheap work only (embed title, dedup against existing content). The
+    expensive research call is left for the background pipeline.
+
+    Returns: { "queued": int, "skipped_dup": int, "cluster": dict | None }
+    """
+    cluster = await _fetch_cluster_meta(cluster_id)
+    if not cluster:
+        return {"queued": 0, "skipped_dup": 0, "cluster": None}
+
+    pending = await db.fetch_cluster_intents(cluster["id"], status="pending")
+    if not pending:
+        return {"queued": 0, "skipped_dup": 0, "cluster": cluster}
+
+    cap = max_articles or settings.max_articles_per_run
+    pending = pending[:cap]
+
+    sim_threshold = await settings_store.get("content_similar_threshold")
+    queued = 0
+    skipped = 0
+
+    for intent in pending:
+        try:
+            title_emb = await embed_text(intent["title"])
+            if title_emb:
+                existing = await db.find_similar_content(title_emb, threshold=sim_threshold, days=60)
+                if existing:
+                    log.info(
+                        "[enqueue] Skipping '{}' — similar to existing '{}' (sim={:.3f})",
+                        intent["title"], existing["title"], existing["similarity"],
+                    )
+                    await db.mark_intent_covered(intent["id"], existing["content_id"])
+                    skipped += 1
+                    continue
+
+            content_id = f"mr-{uuid.uuid4().hex[:12]}"
+            raw_score = float(intent.get("priority_score", 7))
+            content_score = round(min(raw_score / 125, 10.0), 1)
+            await db.insert_queued_content(
+                content_id=content_id,
+                title=intent["title"],
+                cluster=cluster["slug"],
+                score=content_score,
+                intent_id=intent["id"],
+                title_embedding=title_emb,
+                role_id=cluster.get("role_id"),
+            )
+            await db.mark_intent_covered(intent["id"], content_id)
+            queued += 1
+        except Exception as exc:
+            log.error("[enqueue] Failed for intent {}: {}", intent.get("id"), exc)
+
+    log.info(
+        "[enqueue] Cluster '{}' → {} queued, {} skipped (similar)",
+        cluster["name"], queued, skipped,
+    )
+    return {"queued": queued, "skipped_dup": skipped, "cluster": cluster}
+
+
+async def run_pipeline_for_cluster(cluster_id: int) -> None:
+    """Research queued content for the cluster, then advance generate/enrich/finalize."""
+    from sqlalchemy import text as _t
     from src.content.researcher import research_topic
 
-    log.info("========== Starting pipeline for cluster id={} ==========", cluster_id)
+    cluster = await _fetch_cluster_meta(cluster_id)
+    if not cluster:
+        return
+
+    log.info("========== Pipeline starting for cluster '{}' ==========", cluster["name"])
     try:
-        cluster_rows = await db._fetch_clusters_by_id([cluster_id]) if hasattr(db, "_fetch_clusters_by_id") else None
-        # Fallback: query directly
-        cluster = None
-        if not cluster_rows:
-            from sqlalchemy import text as _t
-            async with db.get_session() as s:
-                row = (await s.execute(_t(
-                    "SELECT id, name, slug, role_id FROM intent_clusters WHERE id = :id"
-                ), {"id": cluster_id})).mappings().first()
-                if row:
-                    cluster = dict(row)
-        else:
-            cluster = cluster_rows[0]
+        async with db.get_session() as s:
+            queued_rows = (await s.execute(_t("""
+                SELECT content_id, title, score, intent_id, role_id
+                FROM content WHERE status = 'queued' AND cluster = :slug
+                ORDER BY created_at ASC
+            """), {"slug": cluster["slug"]})).mappings().all()
+        queued_rows = [dict(r) for r in queued_rows]
 
-        if not cluster:
-            log.warning("Cluster id={} not found", cluster_id)
-            return
-
-        pending = await db.fetch_cluster_intents(cluster["id"], status="pending")
-        if not pending:
-            log.info("Cluster '{}' has no pending intents", cluster["name"])
-            return
-
-        cap = max_articles or settings.max_articles_per_run
-        pending = pending[:cap]
-        log.info("Researching {} pending intent(s) in cluster '{}'", len(pending), cluster["name"])
-
-        for intent in pending:
+        log.info("Researching {} queued row(s) in cluster '{}'", len(queued_rows), cluster["name"])
+        for row in queued_rows:
             try:
-                title_emb = await embed_text(intent["title"])
-                if title_emb:
-                    existing = await db.find_similar_content(title_emb, threshold=0.85, days=60)
-                    if existing:
-                        log.warning("Skipping '{}' — similar to '{}' (sim={:.3f})",
-                                    intent["title"], existing["title"], existing["similarity"])
-                        await db.mark_intent_covered(intent["id"], existing["content_id"])
-                        continue
-
-                research = await research_topic(intent["title"])
-                content_id = f"mr-{uuid.uuid4().hex[:12]}"
-                raw_score = float(intent.get("priority_score", 7))
-                content_score = round(min(raw_score / 125, 10.0), 1)
+                research = await research_topic(row["title"])
                 research_payload = {
                     "synthesis": research.get("synthesis", ""),
                     "sources": research.get("sources", []),
                     "source_images": research.get("source_images", []),
                 }
-                await db.insert_researched_content(
-                    content_id=content_id,
-                    title=intent["title"],
-                    cluster=cluster["slug"],
-                    score=content_score,
-                    intent_id=intent["id"],
+                await db.update_content_stage(
+                    row["content_id"], "researched",
                     research_data=research_payload,
-                    title_embedding=title_emb,
-                    role_id=cluster.get("role_id"),
                 )
-                await db.mark_intent_covered(intent["id"], content_id)
-                log.info("Researched '{}' → {}", intent["title"], content_id)
+                log.info("Researched '{}' → {}", row["title"], row["content_id"])
             except Exception as exc:
-                log.error("Research failed for intent {}: {}", intent.get("id"), exc)
+                log.error("Research failed for content {}: {}", row["content_id"], exc)
 
-        # Continue through downstream stages globally — they'll pick up our new rows
-        n_g = await stage_generate()
-        n_e = await stage_enrich()
-        n_f = await stage_finalize()
+        # Drain downstream stages — these pick up our new researched rows
+        # plus any lingering backlog from earlier runs
+        n_g = await _drain(stage_generate, "stage_generate")
+        n_e = await _drain(stage_enrich,   "stage_enrich")
+        n_f = await _drain(stage_finalize, "stage_finalize")
         log.info(
             "========== Cluster '{}' pipeline done: generate={} enrich={} finalize={} ==========",
             cluster["name"], n_g, n_e, n_f,
@@ -592,7 +650,7 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
 
     If role_id is given, mines only that role; otherwise mines all enabled roles.
     """
-    from src.pipeline.intent_miner import mine_intents
+    from src.pipeline.intent_miner import mine_intents, fetch_trend_queries
     from src.pipeline.intent_clusterer import process_intents
 
     log.info("========== Starting intent mining pipeline ==========")
@@ -607,21 +665,40 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
             return
 
         for role in roles:
-            seeds = [
-                k.keyword
-                for k in await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
-            ]
-            if not seeds:
+            existing = await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
+            manual_seeds = [k.keyword for k in existing if k.source == "manual"]
+            all_seeds = [k.keyword for k in existing]
+            if not all_seeds:
                 log.warning("Role '{}' has no enabled seed keywords — skipping", role.slug)
                 continue
+
+            # 0. Trends expansion: discover related/rising queries from each manual seed,
+            #    persist them as new seed_keywords with source='trends'.
+            try:
+                added = 0
+                for seed in manual_seeds:
+                    queries = await fetch_trend_queries(seed)
+                    for q, score in queries:
+                        await db.insert_seed_keyword(role.id, q, source="trends", score=score)
+                        added += 1
+                if added:
+                    log.info("[role={}] Trends expansion: +{} keyword candidates "
+                             "(deduped on insert)", role.slug, added)
+                # Re-fetch keyword list after expansion
+                all_seeds = [
+                    k.keyword
+                    for k in await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
+                ]
+            except Exception as exc:
+                log.warning("[role={}] Trends expansion failed: {}", role.slug, exc)
 
             batch_id = str(uuid.uuid4())
             log.info(
                 "[role={}] Mining intents from {} seeds (batch={})",
-                role.slug, len(seeds), batch_id[:8],
+                role.slug, len(all_seeds), batch_id[:8],
             )
 
-            raw_intents = await mine_intents(seeds)
+            raw_intents = await mine_intents(all_seeds)
             if not raw_intents:
                 log.warning("[role={}] No intents mined", role.slug)
                 continue

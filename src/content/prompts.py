@@ -132,7 +132,11 @@ HUMANIZE_SYSTEM = (
     "- Core arguments and factual claims that could be real\n"
     "- The overall structure and topic of each section\n\n"
     "SOCIAL POSTS: Make them sound like a real person typed them on their phone. "
-    "Sentence fragments. Typo-level casual. No hashtag spam.\n\n"
+    "Sentence fragments are fine. Conversational tone. No hashtag spam.\n"
+    "USE NORMAL CAPITALIZATION — first letter of every sentence is uppercase, "
+    "proper nouns (LinkedIn, Reddit, Apple, etc.) are uppercase, and the title-case "
+    "or sentence-case style of the original article is preserved. Do NOT lowercase "
+    "everything — that reads as fake-casual and unprofessional.\n\n"
     "Return JSON with the SAME keys as input."
 )
 

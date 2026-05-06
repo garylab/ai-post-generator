@@ -15,16 +15,8 @@ from src.utils import serpapi_client
 
 
 def _clean_title(s: str) -> str:
-    """Strip trailing ellipsis (Google SERP truncation marker) and surrounding whitespace."""
-    t = (s or "").strip()
-    # Common truncation suffixes: "…", "...", " …", " ..."
-    while t.endswith(("…", "...")):
-        if t.endswith("…"):
-            t = t[:-1]
-        else:
-            t = t[:-3]
-        t = t.rstrip(" .—-–")
-    return t.strip()
+    """Trim leading/trailing whitespace only — keep whatever SerpAPI returns."""
+    return (s or "").strip()
 from loguru import logger as log
 
 
@@ -121,37 +113,27 @@ async def _mine_forums(seed: str) -> list[RawIntent]:
     return results
 
 
-async def _mine_trends(seed: str) -> list[RawIntent]:
+async def fetch_trend_queries(
+    seed: str, rising_limit: int = 8, top_limit: int = 5,
+) -> list[tuple[str, float]]:
+    """Pull rising + top related queries from Google Trends.
+
+    Returns list of (query, score) tuples. Score is SerpAPI's `extracted_value`
+    — for rising queries it's the percentage growth (e.g. 450 for "+450%"),
+    for top queries it's a 0-100 popularity index.
+    """
     data = await serpapi_client.google_trends(seed)
-    results: list[RawIntent] = []
-
-    for rising in data.get("rising_queries", []):
-        for item in rising.get("queries", [])[:8]:
-            query = item.get("query", "").strip()
-            if not query:
-                continue
-            extracted = int(item.get("extracted_value", 0))
-            results.append(RawIntent(
-                title=_clean_title(query),
-                source="trends",
-                source_url=f"trends://{_slugify_url(query)}",
-                volume_hint=min(extracted / 10, 10) if extracted else 5,
-            ))
-
-    for related in data.get("related_queries", []):
-        for item in related.get("queries", [])[:5]:
-            query = item.get("query", "").strip()
-            if not query:
-                continue
-            extracted = int(item.get("extracted_value", 0))
-            results.append(RawIntent(
-                title=_clean_title(query),
-                source="trends",
-                source_url=f"trends://{_slugify_url(query)}",
-                volume_hint=min(extracted / 10, 10) if extracted else 3,
-            ))
-
-    return results
+    related = data.get("related_queries") or {}
+    out: list[tuple[str, float]] = []
+    for item in (related.get("rising") or [])[:rising_limit]:
+        q = (item.get("query") or "").strip()
+        if q:
+            out.append((q, float(item.get("extracted_value", 0) or 0)))
+    for item in (related.get("top") or [])[:top_limit]:
+        q = (item.get("query") or "").strip()
+        if q:
+            out.append((q, float(item.get("extracted_value", 0) or 0)))
+    return out
 
 
 async def mine_intents(seeds: list[str]) -> list[RawIntent]:
@@ -164,7 +146,6 @@ async def mine_intents(seeds: list[str]) -> list[RawIntent]:
         tasks.append(_mine_autocomplete(seed))
         tasks.append(_mine_paa(seed))
         tasks.append(_mine_forums(seed))
-        tasks.append(_mine_trends(seed))
 
     raw_batches = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -175,5 +156,6 @@ async def mine_intents(seeds: list[str]) -> list[RawIntent]:
             continue
         all_intents.extend(batch)
 
-    log.info("Mined {} raw intents from {} seeds × 4 sources", len(all_intents), len(seeds))
+    log.info("Mined {} raw intents from {} seeds × 3 sources (autocomplete/paa/forums)",
+             len(all_intents), len(seeds))
     return all_intents
