@@ -44,7 +44,7 @@ async def humanize(pkg: ContentPackage) -> ContentPackage:
     })
 
     system_prompt = await get_prompt(
-        "humanize_system", HUMANIZE_SYSTEM,
+        "prompt_humanize_system", HUMANIZE_SYSTEM,
         name="Humanize pass (Claude system)",
         description="System prompt for the humanization rewrite step.",
     )

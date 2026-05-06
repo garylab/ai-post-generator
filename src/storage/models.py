@@ -127,7 +127,7 @@ class IntentRow(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     embedding = mapped_column(Vector(1536), nullable=True)
     source: Mapped[str] = mapped_column(Text, nullable=False)
-    source_url: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False, unique=True, server_default=sa_text("''"))
     snippet: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     volume_hint: Mapped[Decimal] = mapped_column(Numeric(6, 1), nullable=False, server_default=sa_text("0"))
     competition_hint: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False, server_default=sa_text("0"))
@@ -297,6 +297,7 @@ class BrandRow(Base):
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    website: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("TRUE"))
     telegram_bot_token: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     telegram_chat_id: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
@@ -452,6 +453,7 @@ class Brand(BaseModel):
     slug: str
     name: str
     description: str = ""
+    website: str = ""
     enabled: bool = True
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

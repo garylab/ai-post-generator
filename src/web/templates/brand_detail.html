@@ -60,6 +60,11 @@
       <span class="text-xs text-muted">Description</span>
       <input name="description" value="{{ brand.description }}" class="{{ inp }} w-full mt-1">
     </label>
+    <label class="block">
+      <span class="text-xs text-muted">Website (added as a CTA link in generated articles)</span>
+      <input name="website" value="{{ brand.website }}" placeholder="https://example.com"
+             class="{{ inp }} w-full mt-1">
+    </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="enabled" {% if brand.enabled %}checked{% endif %}>
       <span class="text-sm">Enabled (the pipeline mines and publishes for this brand)</span>

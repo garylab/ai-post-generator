@@ -510,12 +510,14 @@ async def brands_update(
     brand_id: int,
     name: str = Form(...),
     description: str = Form(""),
+    website: str = Form(""),
     enabled: str = Form(None),
 ):
     await update_brand(
         brand_id,
         name=name.strip(),
         description=description.strip(),
+        website=website.strip(),
         enabled=bool(enabled),
     )
     return RedirectResponse(f"/dashboard/brands/{brand_id}/settings", status_code=303)
@@ -810,11 +812,11 @@ async def users_delete(
 
 # (key, label, description) for the prompts shown on the /dashboard/prompts page.
 _PROMPT_KEYS: list[tuple[str, str, str]] = [
-    ("content_system", "Content writer (Claude system)",
+    ("prompt_content_system", "Content writer (Claude system)",
      "System prompt for the article-writing stage."),
-    ("humanize_system", "Humanize pass (Claude system)",
+    ("prompt_humanize_system", "Humanize pass (Claude system)",
      "System prompt for the humanization rewrite step."),
-    ("wechat_system", "WeChat converter (Claude system)",
+    ("prompt_wechat_system", "WeChat converter (Claude system)",
      "System prompt for converting articles to WeChat format."),
 ]
 
@@ -824,9 +826,9 @@ async def _seed_known_prompts() -> None:
     from src.content.prompt_store import get_prompt
     from src.content.prompts import CONTENT_SYSTEM, HUMANIZE_SYSTEM, WECHAT_SYSTEM
     fallbacks = {
-        "content_system": CONTENT_SYSTEM,
-        "humanize_system": HUMANIZE_SYSTEM,
-        "wechat_system": WECHAT_SYSTEM,
+        "prompt_content_system": CONTENT_SYSTEM,
+        "prompt_humanize_system": HUMANIZE_SYSTEM,
+        "prompt_wechat_system": WECHAT_SYSTEM,
     }
     for key, _name, description in _PROMPT_KEYS:
         await get_prompt(key, fallbacks[key], description=description)
@@ -889,6 +891,8 @@ async def settings_list(request: Request, _admin = Depends(require_admin)):
     from src import settings_store
     await settings_store.seed_known()
     rows = await fetch_settings()
+    # Hide prompt_* keys — those are managed on /dashboard/prompts
+    rows = [r for r in rows if not r.key.startswith("prompt_")]
     return templates.TemplateResponse(request, "settings.html", {"rows": rows})
 
 

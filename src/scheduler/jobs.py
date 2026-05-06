@@ -194,7 +194,13 @@ async def stage_generate() -> int:
                 "sources": rd.get("sources", []),
             }
 
-            pkg = await generate(topic, research=research)
+            brand = await db.fetch_brand(row["brand_id"]) if row.get("brand_id") else None
+            brand_ctx = (
+                {"name": brand.name, "description": brand.description, "website": brand.website}
+                if brand else None
+            )
+
+            pkg = await generate(topic, research=research, brand=brand_ctx)
             pkg.source_images = rd.get("source_images", [])
             pkg = await humanize(pkg)
 

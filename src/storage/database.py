@@ -650,30 +650,6 @@ async def insert_intent(
         return iid
 
 
-async def find_similar_intent(
-    embedding: list[float],
-    threshold: float = 0.88,
-    days: int = 90,
-) -> dict | None:
-    """Find an existing intent whose embedding is within threshold."""
-    async with get_session() as session:
-        result = await session.execute(
-            text("""
-                SELECT id, title, 1 - (embedding <=> CAST(:vec AS vector)) AS similarity
-                FROM intents
-                WHERE created_at > NOW() - :days * INTERVAL '1 day'
-                  AND embedding IS NOT NULL
-                ORDER BY embedding <=> CAST(:vec AS vector)
-                LIMIT 1
-            """),
-            {"vec": _vec_literal(embedding), "days": days},
-        )
-        row = result.mappings().first()
-        if row and float(row["similarity"]) >= threshold:
-            return {"id": row["id"], "title": row["title"], "similarity": float(row["similarity"])}
-        return None
-
-
 async def fetch_active_clusters() -> list[dict]:
     """Fetch intent clusters that still have uncovered intents and haven't hit the content cap.
 

@@ -57,13 +57,11 @@ async def _mine_paa(seed: str) -> list[RawIntent]:
             if block.get("type") == "paragraph" and block.get("snippet"):
                 snippet = block["snippet"][:300]
                 break
-        # First reference link serves as source_url
-        refs = item.get("references", [])
-        source_url = refs[0].get("link", "") if refs else ""
         results.append(RawIntent(
             title=_clean_title(question),
             source="paa",
-            source_url=source_url,
+            # Synthetic deterministic URL → enables URL-based dedup across runs.
+            source_url=f"paa://{_slugify_url(question)}",
             snippet=snippet,
             volume_hint=8,
         ))

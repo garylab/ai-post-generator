@@ -10,13 +10,13 @@ from loguru import logger as log
 
 
 _STYLE_ATTR = re.compile(
-    r'(<\s*(?:p|section)\b[^>]*?)\s+style\s*=\s*"[^"]*"',
+    r'(<\s*(?:p|section|strong)\b[^>]*?)\s+style\s*=\s*"[^"]*"',
     re.IGNORECASE,
 )
 
 
-def _strip_p_section_styles(html: str) -> str:
-    """Remove any inline style attributes from <p> and <section> tags."""
+def _strip_inline_styles(html: str) -> str:
+    """Remove inline style attributes from <p>, <section>, and <strong> tags."""
     prev = None
     while prev != html:
         prev = html
@@ -35,7 +35,7 @@ async def convert_to_wechat(pkg: ContentPackage) -> ContentPackage:
     )
 
     system_prompt = await get_prompt(
-        "wechat_system", WECHAT_SYSTEM,
+        "prompt_wechat_system", WECHAT_SYSTEM,
         name="WeChat converter (Claude system)",
         description="System prompt for converting articles to WeChat format.",
     )
@@ -51,7 +51,7 @@ async def convert_to_wechat(pkg: ContentPackage) -> ContentPackage:
         cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
     if cleaned and "<" in cleaned:
-        cleaned = _strip_p_section_styles(cleaned)
+        cleaned = _strip_inline_styles(cleaned)
         pkg.wechat_article = cleaned
         log.info("WeChat article generated: '{}' ({} chars)", pkg.article_title, len(cleaned))
     else:

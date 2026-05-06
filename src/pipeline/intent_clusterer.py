@@ -63,57 +63,38 @@ async def _dedup_exact(intents: list[RawIntent]) -> list[RawIntent]:
     return kept
 
 
-async def _dedup_semantic(
+async def _dedup_against_db_by_url(
     intents: list[RawIntent],
     embeddings: list[list[float]],
 ) -> tuple[list[RawIntent], list[list[float]]]:
-    """Remove semantically similar intents within the batch."""
-    if len(intents) <= 1:
+    """Drop intents whose source_url already exists in the DB.
+
+    All four miners (autocomplete/paa/forums/trends) now produce a
+    deterministic source_url, so URL equality is enough to catch
+    re-mined items from earlier runs without doing any embedding work.
+    """
+    urls = [i.source_url for i in intents if (i.source_url or "").strip()]
+    if not urls:
         return intents, embeddings
 
-    dedup_sim = await settings_store.get("intent_dedup_similarity")
-    matrix = np.array(embeddings, dtype=np.float32)
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms = np.where(norms == 0, 1, norms)
-    normed = matrix / norms
+    from sqlalchemy import text as _t
+    async with db.get_session() as s:
+        result = await s.execute(
+            _t("SELECT source_url FROM intents WHERE source_url = ANY(:urls)"),
+            {"urls": urls},
+        )
+        existing = {r[0] for r in result.all()}
 
     kept_intents: list[RawIntent] = []
     kept_embs: list[list[float]] = []
-    kept_indices: list[int] = []
-
-    for i, intent in enumerate(intents):
-        is_dup = False
-        if kept_indices:
-            sims = normed[i] @ normed[kept_indices].T
-            if np.max(sims) >= dedup_sim:
-                is_dup = True
-        if not is_dup:
-            kept_intents.append(intent)
-            kept_embs.append(embeddings[i])
-            kept_indices.append(i)
-
-    log.info("Semantic dedup: {} -> {} intents", len(intents), len(kept_intents))
-    return kept_intents, kept_embs
-
-
-async def _dedup_against_db(
-    intents: list[RawIntent],
-    embeddings: list[list[float]],
-) -> tuple[list[RawIntent], list[list[float]]]:
-    """Remove intents that already exist in the DB."""
-    dedup_sim = await settings_store.get("intent_dedup_similarity")
-    kept_intents: list[RawIntent] = []
-    kept_embs: list[list[float]] = []
-
     for intent, emb in zip(intents, embeddings):
-        existing = await db.find_similar_intent(emb, threshold=dedup_sim)
-        if existing:
-            log.debug("DB dedup dropped '{}' (sim to '{}')", intent.title, existing["title"])
-        else:
-            kept_intents.append(intent)
-            kept_embs.append(emb)
+        if (intent.source_url or "") in existing:
+            continue
+        kept_intents.append(intent)
+        kept_embs.append(emb)
 
-    log.info("DB dedup: {} -> {} intents", len(intents), len(kept_intents))
+    if len(kept_intents) < len(intents):
+        log.info("DB URL dedup: {} -> {} intents", len(intents), len(kept_intents))
     return kept_intents, kept_embs
 
 
@@ -236,11 +217,8 @@ async def process_intents(
     embeddings = await embed_texts(titles)
     log.info("Embedded {} intents", len(embeddings))
 
-    # 3. Semantic dedup within this batch (catches near-duplicate phrasings)
-    intents, embeddings = await _dedup_semantic(intents, embeddings)
-
-    # 4. Dedup against existing DB intents (prevents re-mining across runs)
-    intents, embeddings = await _dedup_against_db(intents, embeddings)
+    # 3. Drop intents whose source_url already exists in the DB.
+    intents, embeddings = await _dedup_against_db_by_url(intents, embeddings)
 
     if not intents:
         log.info("No new intents after dedup")

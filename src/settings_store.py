@@ -19,10 +19,6 @@ _REGISTRY: dict[str, tuple[Any, Callable[[str], Any], str]] = {
         0.70, float,
         "Cosine similarity (0–1) for grouping intents into a cluster.",
     ),
-    "intent_dedup_similarity": (
-        0.88, float,
-        "Cosine similarity above which a new intent is treated as a duplicate of an existing one.",
-    ),
     "content_similar_threshold": (
         0.85, float,
         "Cosine similarity above which a researched title is treated as duplicate of existing content.",

@@ -121,12 +121,16 @@ def _move_citations_to_end(html: str) -> str:
         )
 
 
-async def generate(topic: ScoredTopic, research: dict | None = None) -> ContentPackage:
+async def generate(
+    topic: ScoredTopic,
+    research: dict | None = None,
+    brand: dict | None = None,
+) -> ContentPackage:
     """Generate a full content package from a scored topic using Claude."""
-    user_msg = build_content_prompt(topic.model_dump(), research=research)
+    user_msg = build_content_prompt(topic.model_dump(), research=research, brand=brand)
 
     system_prompt = await get_prompt(
-        "content_system", CONTENT_SYSTEM,
+        "prompt_content_system", CONTENT_SYSTEM,
         name="Content writer (Claude system)",
         description="System prompt for the article-writing stage.",
     )

@@ -163,18 +163,43 @@ WECHAT_SYSTEM = (
     "RULES:\n"
     "- Output ONLY the HTML body. No JSON wrapping, no markdown fences.\n"
     "- DO NOT add any inline `style` attribute on <p> or <section> tags — leave them clean.\n"
-    "- Inline styles are allowed on <strong> (for headings) and similar inline emphasis tags only.\n"
-    "- NO <h1> or <h2> tags. Use <p><strong style=\"font-size:18px;color:#1a1a1a;\">Section Title</strong></p> for headings.\n"
+    "- DO NOT add a `style` attribute to <strong> tags either — no font-size, no color. Plain <strong>.\n"
+    "- NO <h1> or <h2> tags. Use <p><strong>Section Title</strong></p> for headings — no inline styles.\n"
     "- Start with a 导读 blurb wrapped in a plain <section> (no style): <section><p><em>Brief summary...</em></p></section>\n"
     "- Keep all factual content, key points, and examples from the original.\n"
-    "- Remove image markers (<!-- IMG:... -->) since WeChat images are uploaded separately.\n"
+    "- Strip leftover author-only image markers (<!-- IMG:... -->) — those were planning notes.\n"
+    "- KEEP every <figure>...<img>...</figure> block from the original article. Place each "
+    "  figure between paragraphs at the same logical spot it appears in the source. Use plain "
+    "  <figure><img src=\"...\" alt=\"...\" /></figure> with no inline styles. WeChat will display "
+    "  external image URLs at upload time.\n"
     "- Remove any CTA or brand references that don't apply to WeChat.\n"
     "- Preserve the human writing style — don't make it more formal.\n"
     "- Wrap the entire output in a single plain <section> (no style attribute).\n"
 )
 
 
-def build_content_prompt(topic: dict, research: dict | None = None) -> str:
+def build_content_prompt(
+    topic: dict,
+    research: dict | None = None,
+    brand: dict | None = None,
+) -> str:
+    brand_block = ""
+    if brand and (brand.get("website") or brand.get("name")):
+        bits = []
+        if brand.get("name"):
+            bits.append(f"Brand name: {brand['name']}")
+        if brand.get("description"):
+            bits.append(f"What they do: {brand['description']}")
+        if brand.get("website"):
+            bits.append(
+                f"Brand website: {brand['website']}\n"
+                f"  → Include exactly ONE inline link to this URL in the article body, "
+                f"and reuse it as the href in the cta_variant_a / cta_variant_b. Use "
+                f"natural anchor text — no \"click here\" or sales-y phrasing."
+            )
+        if bits:
+            brand_block = "\n=== BRAND CONTEXT ===\n" + "\n".join(bits) + "\n"
+
     angles_block = ""
     if topic.get("angles"):
         a = topic["angles"]
@@ -239,8 +264,8 @@ def build_content_prompt(topic: dict, research: dict | None = None) -> str:
         f"Topic: \"{topic.get('title','')}\"\n"
         f"Angle: {topic.get('suggested_angle','general')}\n"
         f"Cluster: {topic.get('cluster','other')}\n"
-        f"Priority: {topic.get('priority','medium')}"
-        f"{angles_block}{signals_block}{evidence_block}{research_block}\n\n"
+        f"Priority: {topic.get('priority','medium')}\n"
+        f"{brand_block}{angles_block}{signals_block}{evidence_block}{research_block}\n\n"
         "Audience: job seekers, career changers, tech professionals.\n"
         "Brand: mockreal.\n"
         "Tone: like a sharp friend giving real advice over coffee. "
