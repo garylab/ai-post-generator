@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set active = 'settings' %}
+{% from "base.html" import modal %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+{% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
+{% set btn_primary = "bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5" %}
+
+<div class="flex items-center justify-between">
+  <div>
+    <h2 class="text-lg font-semibold">Global settings <span class="text-muted font-normal">({{ rows|length }})</span></h2>
+    <p class="text-muted text-xs mt-1">Key/value pairs editable at runtime. Code can read these via <code class="text-slate-300">db.fetch_setting(key)</code>.</p>
+  </div>
+  <button class="{{ btn_primary }}" onclick="openModal('modal-add-setting')">+ New setting</button>
+</div>
+
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <table class="w-full">
+    <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Key</th>
+        <th class="px-3 py-2 text-left font-medium">Value</th>
+        <th class="px-3 py-2 text-left font-medium">Description</th>
+        <th class="px-3 py-2 text-left font-medium">Updated</th>
+        <th class="px-3 py-2 text-right font-medium">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      {% for s in rows %}
+      <tr class="hover:bg-slate-800/30">
+        <td class="px-3 py-2 font-mono text-xs">{{ s.key }}</td>
+        <td class="px-3 py-2">
+          <form method="post" action="/dashboard/settings/{{ s.id }}/update" class="flex gap-1">
+            <input type="text" name="value" value="{{ s.value }}" class="{{ inp }} flex-1 text-xs">
+            <button class="text-sky-400 hover:underline text-xs px-2">Save</button>
+          </form>
+        </td>
+        <td class="px-3 py-2 text-muted text-xs">{{ s.description or '—' }}</td>
+        <td class="px-3 py-2 text-muted text-xs">{{ s.updated_at.strftime('%Y-%m-%d %H:%M') if s.updated_at else '' }}</td>
+        <td class="px-3 py-2 text-right">
+          <form method="post" action="/dashboard/settings/{{ s.id }}/delete" class="inline"
+                onsubmit="return confirm('Delete setting &quot;{{ s.key }}&quot;?');">
+            <button class="text-rose-400 hover:underline text-xs">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="px-3 py-6 text-center text-muted">No settings yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% call modal('modal-add-setting', 'New setting') %}
+<form method="post" action="/dashboard/settings/add" class="space-y-3">
+  <label class="block">
+    <span class="text-xs text-muted">Key * (snake_case)</span>
+    <input name="key" required pattern="[a-z][a-z0-9_]*" class="{{ inp }} w-full mt-1 font-mono">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Value</span>
+    <input name="value" class="{{ inp }} w-full mt-1">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Description</span>
+    <input name="description" class="{{ inp }} w-full mt-1">
+  </label>
+  <div class="flex justify-end gap-2 pt-2">
+    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-add-setting')">Cancel</button>
+    <button class="{{ btn_primary }}">Create</button>
+  </div>
+</form>
+{% endcall %}
+{% endblock %}

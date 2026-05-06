@@ -31,8 +31,9 @@
   {% set tab_on = "border-sky-500 text-white font-medium" %}
   {% set tabs = [
     ('overall', 'Overall'),
-    ('social-accounts', 'Social Accounts'),
     ('keywords', 'Keywords'),
+    ('social-accounts', 'Social Accounts'),
+    ('notifications', 'Notifications'),
   ] %}
   {% for key, label in tabs %}
   <a href="/dashboard/roles/{{ role.id }}/{{ key }}"
@@ -50,7 +51,7 @@
       <button class="text-rose-400 hover:underline text-sm">Delete role</button>
     </form>
   </div>
-  <form method="post" action="/dashboard/roles/{{ role.id }}/update" class="space-y-3">
+  <form method="post" action="/dashboard/roles/{{ role.id }}/update" class="space-y-4">
     <label class="block">
       <span class="text-xs text-muted">Name</span>
       <input name="name" value="{{ role.name }}" required class="{{ inp }} w-full mt-1">
@@ -65,8 +66,47 @@
     </label>
     <button class="{{ btn_primary }}">Save changes</button>
   </form>
-</section>
-{% endif %}
+</section>{% endif %}
+
+{# ─── Notifications ─────────────── #}
+{% if active_tab == 'notifications' %}
+<section class="{{ sec }} space-y-4">
+  <div>
+    <h3 class="text-base font-semibold">Telegram approval</h3>
+    <p class="text-muted text-xs mt-1">
+      When enabled, finished drafts are sent to this Telegram chat for Approve / Reject before publishing.
+      When disabled, drafts are auto-approved and published.
+    </p>
+  </div>
+  <form method="post" action="/dashboard/roles/{{ role.id }}/notifications/update" class="space-y-3">
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="telegram_enabled" {% if role.telegram_enabled %}checked{% endif %}>
+      <span class="text-sm">Send approval requests via Telegram</span>
+    </label>
+    <label class="block">
+      <span class="text-xs text-muted">Bot token</span>
+      <input name="telegram_bot_token" value="{{ role.telegram_bot_token }}"
+             placeholder="123456789:ABCDEFG..."
+             class="{{ inp }} w-full mt-1 font-mono text-xs">
+    </label>
+    <label class="block">
+      <span class="text-xs text-muted">Chat ID</span>
+      <input name="telegram_chat_id" value="{{ role.telegram_chat_id }}"
+             placeholder="-100123456789 or 123456789"
+             class="{{ inp }} w-full mt-1 font-mono text-xs">
+    </label>
+    <p class="text-muted text-[11px]">
+      Don't forget to register the webhook so callbacks reach this server:
+      <code class="text-slate-300">curl "https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url=https://&lt;your-host&gt;/webhook/telegram"</code>
+    </p>
+    <button class="{{ btn_primary }}">Save Telegram</button>
+  </form>
+
+  <div class="border-t border-border pt-4 mt-4 opacity-50">
+    <h3 class="text-base font-semibold">Slack</h3>
+    <p class="text-muted text-xs mt-1">Coming soon.</p>
+  </div>
+</section>{% endif %}
 
 {# ─── Social Accounts ─────────────── #}
 {% if active_tab == 'social-accounts' %}

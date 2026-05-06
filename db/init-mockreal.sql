@@ -400,12 +400,15 @@ HAVING AVG(p.ctr) < 2;
 -- ROLES (each role = a brand/persona with its own keywords + social accounts)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS roles (
-  id           SERIAL PRIMARY KEY,
-  slug         TEXT UNIQUE NOT NULL,
-  name         TEXT NOT NULL,
-  description  TEXT NOT NULL DEFAULT '',
-  enabled      BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                 SERIAL PRIMARY KEY,
+  slug               TEXT UNIQUE NOT NULL,
+  name               TEXT NOT NULL,
+  description        TEXT NOT NULL DEFAULT '',
+  enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+  telegram_bot_token TEXT NOT NULL DEFAULT '',
+  telegram_chat_id   TEXT NOT NULL DEFAULT '',
+  telegram_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS role_social_accounts (
@@ -432,6 +435,26 @@ CREATE TABLE IF NOT EXISTS seed_keywords (
   UNIQUE (role_id, keyword)
 );
 CREATE INDEX IF NOT EXISTS idx_seed_kw_role ON seed_keywords(role_id);
+
+-- ============================================================
+-- PROMPTS & SETTINGS (admin-managed)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS prompts (
+  id          SERIAL PRIMARY KEY,
+  key         TEXT UNIQUE NOT NULL,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  body        TEXT NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  id          SERIAL PRIMARY KEY,
+  key         TEXT UNIQUE NOT NULL,
+  value       TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- ============================================================
 -- USERS (dashboard auth — admin / editor)

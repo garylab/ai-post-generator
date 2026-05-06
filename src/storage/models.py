@@ -295,6 +295,31 @@ class AbResultRow(Base):
     )
 
 
+class PromptRow(Base):
+    __tablename__ = "prompts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
+    )
+
+
+class SettingRow(Base):
+    __tablename__ = "settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
+    )
+
+
 class UserRow(Base):
     __tablename__ = "users"
 
@@ -318,6 +343,9 @@ class RoleRow(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("TRUE"))
+    telegram_bot_token: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    telegram_chat_id: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
+    telegram_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("FALSE"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
     )
@@ -467,6 +495,27 @@ class _ORMConfig:
     """Marker — children use ConfigDict(from_attributes=True) for ORM hydration."""
 
 
+class Prompt(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    key: str
+    name: str
+    description: str = ""
+    body: str
+    updated_at: datetime
+
+
+class Setting(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    key: str
+    value: str = ""
+    description: str = ""
+    updated_at: datetime
+
+
 class User(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -486,6 +535,9 @@ class Role(BaseModel):
     name: str
     description: str = ""
     enabled: bool = True
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_enabled: bool = False
     created_at: datetime
 
 

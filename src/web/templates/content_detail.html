@@ -24,22 +24,51 @@
 </div>
 
 {# ─── Tabs ──────────────────────────── #}
-<nav class="border-b border-border flex gap-1 flex-wrap">
-  {% set tab_base = "px-4 py-2 text-sm border-b-2 -mb-px transition" %}
-  {% set tab_off = "border-transparent text-muted hover:text-white" %}
-  {% set tab_on = "border-sky-500 text-white font-medium" %}
-  {% set tabs = [
-    ('overview', 'Overview', true),
-    ('article', 'Article', row.article_html),
-    ('medium', 'Medium', row.medium_article),
-    ('wechat', 'WeChat', row.wechat_article),
-    ('social', 'Social', row.social_posts),
-    ('publishes', 'Publishes', true),
-  ] %}
-  {% for key, label, has in tabs %}
-  <a href="/dashboard/content/{{ row.content_id }}/{{ key }}"
-     class="{{ tab_base }} {% if active_tab == key %}{{ tab_on }}{% elif not has %}border-transparent text-slate-600 cursor-not-allowed pointer-events-none{% else %}{{ tab_off }}{% endif %}">{{ label }}</a>
-  {% endfor %}
+<nav class="border-b border-border flex items-end justify-between gap-3 flex-wrap">
+  <div class="flex gap-1 flex-wrap">
+    {% set tab_base = "px-4 py-2 text-sm border-b-2 -mb-px transition" %}
+    {% set tab_off = "border-transparent text-muted hover:text-white" %}
+    {% set tab_on = "border-sky-500 text-white font-medium" %}
+    {% set tabs = [
+      ('overview', 'Overview', true),
+      ('article', 'Article', row.article_html),
+      ('medium', 'Medium', row.medium_article),
+      ('wechat', 'WeChat', row.wechat_article),
+      ('social', 'Social', row.social_posts),
+      ('publishes', 'Publishes', true),
+    ] %}
+    {% for key, label, has in tabs %}
+    <a href="/dashboard/content/{{ row.content_id }}/{{ key }}"
+       class="{{ tab_base }} {% if active_tab == key %}{{ tab_on }}{% elif not has %}border-transparent text-slate-600 cursor-not-allowed pointer-events-none{% else %}{{ tab_off }}{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  {% if active_tab in ('article', 'medium', 'wechat') and (
+      (active_tab == 'article' and row.article_html)
+      or (active_tab == 'medium' and row.medium_article)
+      or (active_tab == 'wechat' and row.wechat_article)
+  ) %}
+  <div class="flex items-center gap-2 pb-2">
+    <div class="flex items-center gap-1">
+      <button type="button" data-view="rendered" data-scope="{{ active_tab }}"
+              class="view-toggle-btn px-3 py-1 text-xs rounded-md bg-slate-800 text-white border border-border">
+        Rendered
+      </button>
+      <button type="button" data-view="source" data-scope="{{ active_tab }}"
+              class="view-toggle-btn px-3 py-1 text-xs rounded-md text-muted hover:text-white border border-transparent">
+        Source
+      </button>
+    </div>
+    <button type="button" data-copy-scope="{{ active_tab }}"
+            class="copy-btn flex items-center gap-1.5 px-3 py-1 text-xs rounded-md text-muted hover:text-white border border-border hover:bg-slate-800/50">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="13" height="13" rx="2"/>
+        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+      </svg>
+      <span class="copy-label">Copy</span>
+    </button>
+  </div>
+  {% endif %}
 </nav>
 
 {# ─── Overview ──────────────────────── #}
@@ -85,35 +114,96 @@
 
 {# ─── Article ─────────────────────── #}
 {% if active_tab == 'article' %}
+{% if row.article_html %}
 <section class="{{ sec }}">
-  {% if row.article_html %}
-  <article class="prose prose-invert max-w-none">{{ row.article_html | safe }}</article>
-  {% else %}
-  <p class="text-muted text-sm">No article HTML yet.</p>
-  {% endif %}
+  <div data-scope="article" data-pane="rendered" class="doc-content mx-auto">{{ row.article_html | safe }}</div>
+  <div data-scope="article" data-pane="source" class="doc-source hidden">{{ row.article_html }}</div>
 </section>
+{% else %}
+<section class="{{ sec }}"><p class="text-muted text-sm">No article HTML yet.</p></section>
+{% endif %}
 {% endif %}
 
 {# ─── Medium ──────────────────────── #}
 {% if active_tab == 'medium' %}
+{% if row.medium_article %}
 <section class="{{ sec }}">
-  {% if row.medium_article %}
-  <pre class="{{ pre }}">{{ row.medium_article }}</pre>
-  {% else %}
-  <p class="text-muted text-sm">No Medium variant yet.</p>
-  {% endif %}
+  <div data-scope="medium" data-pane="rendered" data-markdown="true"
+       data-source="{{ row.medium_article }}" class="doc-content mx-auto"></div>
+  <pre data-scope="medium" data-pane="source" class="doc-source hidden">{{ row.medium_article }}</pre>
 </section>
+{% else %}
+<section class="{{ sec }}"><p class="text-muted text-sm">No Medium variant yet.</p></section>
+{% endif %}
 {% endif %}
 
 {# ─── WeChat ──────────────────────── #}
 {% if active_tab == 'wechat' %}
+{% if row.wechat_article %}
 <section class="{{ sec }}">
-  {% if row.wechat_article %}
-  <pre class="{{ pre }}">{{ row.wechat_article }}</pre>
-  {% else %}
-  <p class="text-muted text-sm">No WeChat variant yet.</p>
-  {% endif %}
+  <div data-scope="wechat" data-pane="rendered" data-markdown="true"
+       data-source="{{ row.wechat_article }}" class="doc-content mx-auto"></div>
+  <pre data-scope="wechat" data-pane="source" class="doc-source hidden">{{ row.wechat_article }}</pre>
 </section>
+{% else %}
+<section class="{{ sec }}"><p class="text-muted text-sm">No WeChat variant yet.</p></section>
+{% endif %}
+{% endif %}
+
+{% if active_tab in ('article', 'medium', 'wechat') %}
+<script>
+  // Render any markdown-bearing pane via marked.js
+  document.querySelectorAll('[data-markdown="true"]').forEach(el => {
+    const src = el.dataset.source || '';
+    if (src && window.marked) {
+      el.innerHTML = window.marked.parse(src);
+    }
+  });
+
+  // Rendered / Source toggle
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const scope = btn.dataset.scope;
+      const view = btn.dataset.view;
+      document.querySelectorAll(`.view-toggle-btn[data-scope="${scope}"]`).forEach(b => {
+        if (b.dataset.view === view) {
+          b.className = 'view-toggle-btn px-3 py-1 text-xs rounded-md bg-slate-800 text-white border border-border';
+        } else {
+          b.className = 'view-toggle-btn px-3 py-1 text-xs rounded-md text-muted hover:text-white border border-transparent';
+        }
+      });
+      document.querySelectorAll(`[data-scope="${scope}"][data-pane]`).forEach(p => {
+        p.classList.toggle('hidden', p.dataset.pane !== view);
+      });
+    });
+  });
+
+  // Copy current visible pane to clipboard
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const scope = btn.dataset.copyScope;
+      const visible = document.querySelector(`[data-scope="${scope}"][data-pane]:not(.hidden)`);
+      if (!visible) return;
+      // Source panes show the raw text; rendered panes copy as plain visible text
+      const text = visible.dataset.pane === 'source' ? visible.textContent : visible.innerText;
+      const label = btn.querySelector('.copy-label');
+      const original = label.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        label.textContent = 'Copied!';
+      } catch (err) {
+        // Fallback: select + execCommand
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); label.textContent = 'Copied!'; }
+        catch { label.textContent = 'Copy failed'; }
+        document.body.removeChild(ta);
+      }
+      setTimeout(() => { label.textContent = original; }, 1500);
+    });
+  });
+</script>
 {% endif %}
 
 {# ─── Social ──────────────────────── #}

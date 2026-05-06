@@ -283,14 +283,28 @@ async def stage_finalize() -> int:
                 title_embedding=final_emb,
             )
 
-            if settings.auto_approve:
+            # Routing rule:
+            #   role.telegram_enabled  → send approval request via that role's bot
+            #   otherwise              → auto-approve and publish immediately
+            role = await db.fetch_role(row["role_id"]) if row.get("role_id") else None
+            send_via_telegram = bool(role and role.telegram_enabled
+                                     and role.telegram_bot_token and role.telegram_chat_id)
+
+            if send_via_telegram:
+                pkg = _row_to_package(row)
+                sent = await send_for_approval(pkg, role=role)
+                if sent:
+                    log.info("[stage_finalize] Queued '{}' for Telegram approval (role={})",
+                             row["title"], role.slug)
+                else:
+                    # Fallback: if telegram send failed, auto-approve to keep the pipeline moving
+                    log.warning("[stage_finalize] Telegram send failed, auto-approving '{}'", row["title"])
+                    await db.update_content_status(row["content_id"], "approved")
+                    await publish_approved(row["content_id"])
+            else:
                 await db.update_content_status(row["content_id"], "approved")
                 log.info("[stage_finalize] Auto-approved: '{}'", row["title"])
                 await publish_approved(row["content_id"])
-            else:
-                pkg = _row_to_package(row)
-                await send_for_approval(pkg)
-                log.info("[stage_finalize] Queued for approval: '{}'", row["title"])
 
             count += 1
 

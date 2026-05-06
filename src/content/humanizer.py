@@ -4,6 +4,7 @@ import json
 import re
 
 from src.content.prompts import HUMANIZE_SYSTEM
+from src.content.prompt_store import get_prompt
 from src.storage.models import ContentPackage
 from src.utils.ai_client import chat_claude
 from loguru import logger as log
@@ -42,6 +43,11 @@ async def humanize(pkg: ContentPackage) -> ContentPackage:
         "social_posts_variant_b": pkg.social_posts_variant_b,
     })
 
+    system_prompt = await get_prompt(
+        "humanize_system", HUMANIZE_SYSTEM,
+        name="Humanize pass (Claude system)",
+        description="System prompt for the humanization rewrite step.",
+    )
     raw = await chat_claude(
         user_message=(
             "Rewrite this content to kill all AI patterns. Be aggressive — "
@@ -49,7 +55,7 @@ async def humanize(pkg: ContentPackage) -> ContentPackage:
             "Keep all <sup>[N]</sup> references exactly as-is. "
             "Return ONLY valid JSON, no markdown fences:\n\n" + payload
         ),
-        system=HUMANIZE_SYSTEM,
+        system=system_prompt,
         max_tokens=10000,
         temperature=0.8,
     )

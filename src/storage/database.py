@@ -18,12 +18,16 @@ from src.storage.models import (
     IntentRow,
     PerformanceRow,
     PublishLogRow,
+    Prompt,
+    PromptRow,
     Role,
     RoleRow,
     RoleSocialAccount,
     RoleSocialAccountRow,
     SeedKeyword,
     SeedKeywordRow,
+    Setting,
+    SettingRow,
     User,
     UserRow,
 )
@@ -898,6 +902,91 @@ async def delete_role_account(account_id: int) -> None:
         await session.execute(
             text("DELETE FROM role_social_accounts WHERE id = :id"), {"id": account_id}
         )
+        await session.commit()
+
+
+# ── Prompts ─────────────────────────────────────────────────────
+
+async def fetch_prompts() -> list[Prompt]:
+    async with get_session() as session:
+        result = await session.execute(select(PromptRow).order_by(PromptRow.key))
+        return [Prompt.model_validate(r) for r in result.scalars().all()]
+
+
+async def fetch_prompt_by_key(key: str) -> Prompt | None:
+    async with get_session() as session:
+        result = await session.execute(select(PromptRow).where(PromptRow.key == key))
+        row = result.scalar_one_or_none()
+        return Prompt.model_validate(row) if row else None
+
+
+async def upsert_prompt(key: str, name: str, body: str, description: str = "") -> None:
+    """Insert or update a prompt by key."""
+    async with get_session() as session:
+        stmt = (
+            pg_insert(PromptRow)
+            .values(key=key, name=name, body=body, description=description)
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"name": name, "body": body, "description": description,
+                      "updated_at": func.now()},
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def update_prompt_body(prompt_id: int, body: str) -> None:
+    async with get_session() as session:
+        await session.execute(
+            update(PromptRow).where(PromptRow.id == prompt_id)
+            .values(body=body, updated_at=func.now())
+        )
+        await session.commit()
+
+
+# ── Settings ────────────────────────────────────────────────────
+
+async def fetch_settings() -> list[Setting]:
+    async with get_session() as session:
+        result = await session.execute(select(SettingRow).order_by(SettingRow.key))
+        return [Setting.model_validate(r) for r in result.scalars().all()]
+
+
+async def fetch_setting(key: str) -> Setting | None:
+    async with get_session() as session:
+        result = await session.execute(select(SettingRow).where(SettingRow.key == key))
+        row = result.scalar_one_or_none()
+        return Setting.model_validate(row) if row else None
+
+
+async def upsert_setting(key: str, value: str, description: str = "") -> None:
+    async with get_session() as session:
+        stmt = (
+            pg_insert(SettingRow)
+            .values(key=key, value=value, description=description)
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": value, "description": description,
+                      "updated_at": func.now()},
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def update_setting_value(setting_id: int, value: str) -> None:
+    async with get_session() as session:
+        await session.execute(
+            update(SettingRow).where(SettingRow.id == setting_id)
+            .values(value=value, updated_at=func.now())
+        )
+        await session.commit()
+
+
+async def delete_setting(setting_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(text("DELETE FROM settings WHERE id = :id"), {"id": setting_id})
         await session.commit()
 
 

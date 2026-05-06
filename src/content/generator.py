@@ -6,6 +6,7 @@ import uuid
 from urllib.parse import urlparse
 
 from src.content.prompts import CONTENT_SYSTEM, build_content_prompt
+from src.content.prompt_store import get_prompt
 from src.storage.models import ContentPackage, ScoredTopic
 from src.utils.ai_client import chat_claude
 from loguru import logger as log
@@ -118,9 +119,14 @@ async def generate(topic: ScoredTopic, research: dict | None = None) -> ContentP
     """Generate a full content package from a scored topic using Claude."""
     user_msg = build_content_prompt(topic.model_dump(), research=research)
 
+    system_prompt = await get_prompt(
+        "content_system", CONTENT_SYSTEM,
+        name="Content writer (Claude system)",
+        description="System prompt for the article-writing stage.",
+    )
     raw = await chat_claude(
         user_message=user_msg,
-        system=CONTENT_SYSTEM,
+        system=system_prompt,
         max_tokens=8192,
         temperature=0.6,
     )

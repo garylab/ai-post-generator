@@ -141,16 +141,15 @@ WECHAT_SYSTEM = (
     "You convert blog articles into WeChat Official Account (公众号) format.\n\n"
     "RULES:\n"
     "- Output ONLY the HTML body. No JSON wrapping, no markdown fences.\n"
-    "- Use ONLY inline styles — WeChat strips CSS classes.\n"
-    "- Base paragraph style: style=\"margin-bottom:1.2em;line-height:1.8;color:#333;font-size:16px;\"\n"
+    "- DO NOT add any inline `style` attribute on <p> or <section> tags — leave them clean.\n"
+    "- Inline styles are allowed on <strong> (for headings) and similar inline emphasis tags only.\n"
     "- NO <h1> or <h2> tags. Use <p><strong style=\"font-size:18px;color:#1a1a1a;\">Section Title</strong></p> for headings.\n"
-    "- Start with a 导读 blurb in a styled box: <section style=\"background:#f7f7f7;border-left:4px solid #07c160;"
-    "padding:12px 16px;margin-bottom:1.5em;font-size:15px;color:#666;line-height:1.6;\">Brief summary...</section>\n"
+    "- Start with a 导读 blurb wrapped in a plain <section> (no style): <section><p><em>Brief summary...</em></p></section>\n"
     "- Keep all factual content, key points, and examples from the original.\n"
     "- Remove image markers (<!-- IMG:... -->) since WeChat images are uploaded separately.\n"
     "- Remove any CTA or brand references that don't apply to WeChat.\n"
     "- Preserve the human writing style — don't make it more formal.\n"
-    "- Wrap the entire output in a single <section> with style=\"padding:0 8px;\".\n"
+    "- Wrap the entire output in a single plain <section> (no style attribute).\n"
 )
 
 

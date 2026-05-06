@@ -1,9 +1,27 @@
 from __future__ import annotations
 
+import re
+
 from src.content.prompts import WECHAT_SYSTEM
+from src.content.prompt_store import get_prompt
 from src.storage.models import ContentPackage
 from src.utils.ai_client import chat_claude
 from loguru import logger as log
+
+
+_STYLE_ATTR = re.compile(
+    r'(<\s*(?:p|section)\b[^>]*?)\s+style\s*=\s*"[^"]*"',
+    re.IGNORECASE,
+)
+
+
+def _strip_p_section_styles(html: str) -> str:
+    """Remove any inline style attributes from <p> and <section> tags."""
+    prev = None
+    while prev != html:
+        prev = html
+        html = _STYLE_ATTR.sub(r"\1", html)
+    return html
 
 
 async def convert_to_wechat(pkg: ContentPackage) -> ContentPackage:
@@ -16,9 +34,14 @@ async def convert_to_wechat(pkg: ContentPackage) -> ContentPackage:
         f"Original article HTML:\n{pkg.article_html}"
     )
 
+    system_prompt = await get_prompt(
+        "wechat_system", WECHAT_SYSTEM,
+        name="WeChat converter (Claude system)",
+        description="System prompt for converting articles to WeChat format.",
+    )
     raw = await chat_claude(
         user_message=user_msg,
-        system=WECHAT_SYSTEM,
+        system=system_prompt,
         max_tokens=6000,
         temperature=0.4,
     )
@@ -28,6 +51,7 @@ async def convert_to_wechat(pkg: ContentPackage) -> ContentPackage:
         cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
     if cleaned and "<" in cleaned:
+        cleaned = _strip_p_section_styles(cleaned)
         pkg.wechat_article = cleaned
         log.info("WeChat article generated: '{}' ({} chars)", pkg.article_title, len(cleaned))
     else:

@@ -12,12 +12,15 @@ from src.storage.database import (
     delete_role,
     delete_role_account,
     delete_seed_keyword,
+    delete_setting,
     delete_user,
     fetch_content,
+    fetch_prompts,
     fetch_role,
     fetch_role_accounts,
     fetch_roles,
     fetch_seed_keywords,
+    fetch_settings,
     fetch_user,
     fetch_user_by_email,
     fetch_users,
@@ -28,9 +31,12 @@ from src.storage.database import (
     insert_user,
     toggle_role_account,
     toggle_seed_keyword,
+    update_prompt_body,
     update_role,
     update_role_account,
+    update_setting_value,
     update_user,
+    upsert_setting,
 )
 from src.web.auth import (
     current_user,
@@ -382,6 +388,15 @@ async def role_tab_keywords(request: Request, role_id: int):
     )
 
 
+@router.get("/dashboard/roles/{role_id}/notifications", response_class=HTMLResponse)
+async def role_tab_notifications(request: Request, role_id: int):
+    role = await _role_or_404(role_id)
+    return templates.TemplateResponse(
+        request, "role_detail.html",
+        {"role": role, "active_tab": "notifications"},
+    )
+
+
 @router.post("/dashboard/roles/{role_id}/update")
 async def roles_update(
     role_id: int,
@@ -396,6 +411,22 @@ async def roles_update(
         enabled=bool(enabled),
     )
     return RedirectResponse(f"/dashboard/roles/{role_id}/overall", status_code=303)
+
+
+@router.post("/dashboard/roles/{role_id}/notifications/update")
+async def roles_notifications_update(
+    role_id: int,
+    telegram_bot_token: str = Form(""),
+    telegram_chat_id: str = Form(""),
+    telegram_enabled: str = Form(None),
+):
+    await update_role(
+        role_id,
+        telegram_bot_token=telegram_bot_token.strip(),
+        telegram_chat_id=telegram_chat_id.strip(),
+        telegram_enabled=bool(telegram_enabled),
+    )
+    return RedirectResponse(f"/dashboard/roles/{role_id}/notifications", status_code=303)
 
 
 @router.post("/dashboard/roles/{role_id}/delete")
@@ -621,3 +652,71 @@ async def users_delete(
         raise HTTPException(400, "Cannot delete the last admin")
     await delete_user(user_id)
     return RedirectResponse("/dashboard/users", status_code=303)
+
+
+# ── Prompts (admin only) ──────────────────────────────────────
+
+@router.get("/dashboard/prompts", response_class=HTMLResponse)
+async def prompts_list(request: Request, _admin = Depends(require_admin)):
+    # Trigger the seed-on-first-read for known prompt keys so they appear in the table
+    from src.content.prompt_store import get_prompt
+    from src.content.prompts import CONTENT_SYSTEM, HUMANIZE_SYSTEM, WECHAT_SYSTEM
+    await get_prompt("content_system", CONTENT_SYSTEM,
+                     name="Content writer (Claude system)",
+                     description="System prompt for the article-writing stage.")
+    await get_prompt("humanize_system", HUMANIZE_SYSTEM,
+                     name="Humanize pass (Claude system)",
+                     description="System prompt for the humanization rewrite step.")
+    await get_prompt("wechat_system", WECHAT_SYSTEM,
+                     name="WeChat converter (Claude system)",
+                     description="System prompt for converting articles to WeChat format.")
+
+    rows = await fetch_prompts()
+    return templates.TemplateResponse(request, "prompts.html", {"rows": rows})
+
+
+@router.post("/dashboard/prompts/{prompt_id}/update")
+async def prompts_update(
+    prompt_id: int,
+    body: str = Form(...),
+    _admin = Depends(require_admin),
+):
+    from src.content import prompt_store
+    await update_prompt_body(prompt_id, body)
+    prompt_store.invalidate()  # drop cache so next read sees new body
+    return RedirectResponse("/dashboard/prompts", status_code=303)
+
+
+# ── Settings (admin only) ─────────────────────────────────────
+
+@router.get("/dashboard/settings", response_class=HTMLResponse)
+async def settings_list(request: Request, _admin = Depends(require_admin)):
+    rows = await fetch_settings()
+    return templates.TemplateResponse(request, "settings.html", {"rows": rows})
+
+
+@router.post("/dashboard/settings/add")
+async def settings_add(
+    key: str = Form(...),
+    value: str = Form(""),
+    description: str = Form(""),
+    _admin = Depends(require_admin),
+):
+    await upsert_setting(key.strip(), value, description.strip())
+    return RedirectResponse("/dashboard/settings", status_code=303)
+
+
+@router.post("/dashboard/settings/{setting_id}/update")
+async def settings_update(
+    setting_id: int,
+    value: str = Form(""),
+    _admin = Depends(require_admin),
+):
+    await update_setting_value(setting_id, value)
+    return RedirectResponse("/dashboard/settings", status_code=303)
+
+
+@router.post("/dashboard/settings/{setting_id}/delete")
+async def settings_delete(setting_id: int, _admin = Depends(require_admin)):
+    await delete_setting(setting_id)
+    return RedirectResponse("/dashboard/settings", status_code=303)
