@@ -14,11 +14,13 @@ from src.config import settings
 from src.scheduler.jobs import daily_metrics, main_pipeline, publish_approved
 from src.storage.database import close_db, init_db, ping
 from src.utils.logging import setup_logging
+from src.web.dashboard import router as dashboard_router
 from loguru import logger as log
 
 
 app = FastAPI(title="Mockreal Growth Engine", version="1.0.0")
 app.include_router(webhook_router)
+app.include_router(dashboard_router)
 
 
 # ── Health ───────────────────────────────────────────────────
@@ -133,6 +135,19 @@ def main():
         host="0.0.0.0",
         port=settings.app_port,
         log_level="info",
+    )
+
+
+def dev():
+    """Local hot-reload dev server."""
+    setup_logging("INFO")
+    uvicorn.run(
+        "src.main:app",
+        host="127.0.0.1",
+        port=settings.app_port,
+        log_level="info",
+        reload=True,
+        reload_dirs=["src"],
     )
 
 

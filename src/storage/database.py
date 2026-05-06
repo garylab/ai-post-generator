@@ -18,6 +18,9 @@ from src.storage.models import (
     IntentRow,
     PerformanceRow,
     PublishLogRow,
+    RoleRow,
+    RoleSocialAccountRow,
+    SeedKeywordRow,
 )
 
 
@@ -80,6 +83,7 @@ async def insert_researched_content(
     intent_id: int | None,
     research_data: dict,
     title_embedding: list[float] | None = None,
+    role_id: int | None = None,
 ) -> None:
     """Create a content row at the 'researched' stage with research data persisted."""
     async with get_session() as session:
@@ -88,6 +92,7 @@ async def insert_researched_content(
             .values(
                 content_id=content_id,
                 intent_id=intent_id,
+                role_id=role_id,
                 title=title,
                 title_embedding=title_embedding,
                 cluster=cluster,
@@ -488,6 +493,7 @@ async def insert_intent_cluster(
     centroid_embedding: list[float] | None = None,
     intent_count: int = 0,
     priority_score: float = 0,
+    role_id: int | None = None,
 ) -> int:
     """Insert a new intent cluster, returns the cluster id."""
     async with get_session() as session:
@@ -499,6 +505,7 @@ async def insert_intent_cluster(
                 centroid_embedding=centroid_embedding,
                 intent_count=intent_count,
                 priority_score=priority_score,
+                role_id=role_id,
             )
             .returning(IntentClusterRow.id)
         )
@@ -531,6 +538,7 @@ async def insert_intent(
     cluster_id: int | None = None,
     is_pillar: bool = False,
     batch_id: str = "",
+    role_id: int | None = None,
 ) -> int:
     """Insert a new intent, returns the intent id."""
     async with get_session() as session:
@@ -544,6 +552,7 @@ async def insert_intent(
             priority_score=priority_score,
             cluster_id=cluster_id,
             is_pillar=is_pillar,
+            role_id=role_id,
         )
         if batch_id:
             vals["batch_id"] = _uuid.UUID(batch_id)
@@ -592,7 +601,7 @@ async def fetch_active_clusters() -> list[dict]:
                 SELECT ic.id, ic.name, ic.slug, ic.pillar_intent_id,
                        ic.pillar_content_id, ic.status,
                        ic.intent_count, ic.covered_count,
-                       ic.priority_score,
+                       ic.priority_score, ic.role_id,
                        COUNT(c.id) AS content_count
                 FROM intent_clusters ic
                 LEFT JOIN content c ON c.cluster = ic.slug
@@ -671,6 +680,169 @@ async def fetch_intent_stats() -> dict:
         )
         row = result.mappings().first()
         return dict(row) if row else {}
+
+
+async def fetch_seed_keywords(role_id: int | None = None, enabled_only: bool = False) -> list[dict]:
+    async with get_session() as session:
+        stmt = select(SeedKeywordRow)
+        if role_id is not None:
+            stmt = stmt.where(SeedKeywordRow.role_id == role_id)
+        if enabled_only:
+            stmt = stmt.where(SeedKeywordRow.enabled.is_(True))
+        stmt = stmt.order_by(SeedKeywordRow.created_at.desc())
+        result = await session.execute(stmt)
+        return [_to_dict(r) for r in result.scalars().all()]
+
+
+async def insert_seed_keyword(role_id: int, keyword: str) -> None:
+    async with get_session() as session:
+        stmt = (
+            pg_insert(SeedKeywordRow)
+            .values(role_id=role_id, keyword=keyword, enabled=True)
+            .on_conflict_do_nothing(index_elements=["role_id", "keyword"])
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def toggle_seed_keyword(keyword_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(
+            text("UPDATE seed_keywords SET enabled = NOT enabled WHERE id = :id"),
+            {"id": keyword_id},
+        )
+        await session.commit()
+
+
+async def delete_seed_keyword(keyword_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(
+            text("DELETE FROM seed_keywords WHERE id = :id"), {"id": keyword_id}
+        )
+        await session.commit()
+
+
+# ── Roles ───────────────────────────────────────────────────────
+
+async def fetch_roles(enabled_only: bool = False) -> list[dict]:
+    async with get_session() as session:
+        stmt = select(RoleRow)
+        if enabled_only:
+            stmt = stmt.where(RoleRow.enabled.is_(True))
+        stmt = stmt.order_by(RoleRow.created_at.asc())
+        result = await session.execute(stmt)
+        return [_to_dict(r) for r in result.scalars().all()]
+
+
+async def fetch_role(role_id: int) -> dict | None:
+    async with get_session() as session:
+        result = await session.execute(select(RoleRow).where(RoleRow.id == role_id))
+        row = result.scalar_one_or_none()
+        return _to_dict(row) if row else None
+
+
+async def insert_role(name: str, description: str = "") -> int:
+    """Insert a role; slug is auto-derived from the name."""
+    import re
+
+    base = re.sub(r"[^\w\s-]", "", name.lower()).strip()
+    base = re.sub(r"[\s_]+", "-", base) or "role"
+    async with get_session() as session:
+        # Make slug unique by appending -2, -3 if collisions exist
+        slug = base
+        n = 2
+        while True:
+            existing = await session.execute(
+                text("SELECT 1 FROM roles WHERE slug = :s LIMIT 1"), {"s": slug}
+            )
+            if existing.first() is None:
+                break
+            slug = f"{base}-{n}"
+            n += 1
+
+        result = await session.execute(
+            insert(RoleRow)
+            .values(slug=slug, name=name, description=description, enabled=True)
+            .returning(RoleRow.id)
+        )
+        rid = result.scalar_one()
+        await session.commit()
+        return rid
+
+
+async def update_role(role_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    async with get_session() as session:
+        await session.execute(update(RoleRow).where(RoleRow.id == role_id).values(**fields))
+        await session.commit()
+
+
+async def delete_role(role_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(text("DELETE FROM roles WHERE id = :id"), {"id": role_id})
+        await session.commit()
+
+
+# ── Role Social Accounts ────────────────────────────────────────
+
+async def fetch_role_accounts(role_id: int, enabled_only: bool = False) -> list[dict]:
+    async with get_session() as session:
+        stmt = select(RoleSocialAccountRow).where(RoleSocialAccountRow.role_id == role_id)
+        if enabled_only:
+            stmt = stmt.where(RoleSocialAccountRow.enabled.is_(True))
+        stmt = stmt.order_by(RoleSocialAccountRow.platform, RoleSocialAccountRow.display_name)
+        result = await session.execute(stmt)
+        return [_to_dict(r) for r in result.scalars().all()]
+
+
+async def insert_role_account(
+    role_id: int, platform: str, display_name: str, credentials: dict
+) -> None:
+    async with get_session() as session:
+        stmt = (
+            pg_insert(RoleSocialAccountRow)
+            .values(
+                role_id=role_id,
+                platform=platform,
+                display_name=display_name,
+                credentials=credentials,
+                enabled=True,
+            )
+            .on_conflict_do_update(
+                index_elements=["role_id", "platform", "display_name"],
+                set_={"credentials": credentials, "enabled": True},
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def update_role_account(account_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    async with get_session() as session:
+        await session.execute(
+            update(RoleSocialAccountRow).where(RoleSocialAccountRow.id == account_id).values(**fields)
+        )
+        await session.commit()
+
+
+async def toggle_role_account(account_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(
+            text("UPDATE role_social_accounts SET enabled = NOT enabled WHERE id = :id"),
+            {"id": account_id},
+        )
+        await session.commit()
+
+
+async def delete_role_account(account_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(
+            text("DELETE FROM role_social_accounts WHERE id = :id"), {"id": account_id}
+        )
+        await session.commit()
 
 
 async def ping() -> bool:

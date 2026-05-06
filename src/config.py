@@ -7,11 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Database
-    db_host: str = "localhost"
-    db_port: int = 5432
-    db_user: str = "postgres"
-    db_pass: str = ""
-    db_name: str = "mockreal_ge"
+    db_url: str = "postgresql://postgres:@localhost:5432/ai-post-generator"
 
     # Timezone
     generic_timezone: str = "Asia/Dubai"
@@ -51,6 +47,7 @@ class Settings(BaseSettings):
 
     # App
     app_port: int = 8000
+    dashboard_password: str = ""
     pipeline_interval_hours: int = 6
     metrics_hour: int = 3
 
@@ -72,17 +69,12 @@ class Settings(BaseSettings):
 
     @property
     def dsn(self) -> str:
-        return f"postgresql://{self.db_user}:{self.db_pass}@{self.db_host}:{self.db_port}/{self.db_name}"
+        return self.db_url
 
 
 settings = Settings()
 
 
-def get_seed_keywords() -> list[str]:
-    raw = settings.seed_keywords.strip()
-    if not raw:
-        return []
-    return [w.strip() for w in raw.split(",") if w.strip()]
 
 
 BANNED_PHRASES = [

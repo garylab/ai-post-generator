@@ -395,3 +395,48 @@ WHERE c.status IN ('approved', 'published')
   AND c.created_at < NOW() - INTERVAL '48 hours'
 GROUP BY c.content_id, c.title, c.cluster, c.score, c.iteration_count, c.created_at
 HAVING AVG(p.ctr) < 2;
+
+-- ============================================================
+-- ROLES (each role = a brand/persona with its own keywords + social accounts)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS roles (
+  id           SERIAL PRIMARY KEY,
+  slug         TEXT UNIQUE NOT NULL,
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS role_social_accounts (
+  id            SERIAL PRIMARY KEY,
+  role_id       INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  platform      TEXT NOT NULL,
+  display_name  TEXT NOT NULL DEFAULT '',
+  credentials   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (role_id, platform, display_name)
+);
+CREATE INDEX IF NOT EXISTS idx_role_social_role ON role_social_accounts(role_id);
+
+-- ============================================================
+-- SEED KEYWORDS (manageable from dashboard, scoped per role)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS seed_keywords (
+  id SERIAL PRIMARY KEY,
+  role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
+  keyword TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (role_id, keyword)
+);
+CREATE INDEX IF NOT EXISTS idx_seed_kw_role ON seed_keywords(role_id);
+
+-- Per-role tagging on existing pipeline tables
+ALTER TABLE intents ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
+ALTER TABLE intent_clusters ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
+ALTER TABLE content ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_intents_role ON intents(role_id);
+CREATE INDEX IF NOT EXISTS idx_clusters_role ON intent_clusters(role_id);
+CREATE INDEX IF NOT EXISTS idx_content_role ON content(role_id);

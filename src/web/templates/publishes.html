@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set active = 'publishes' %}
+{% from "base.html" import paginate %}
+{% block page_title %}Publishes{% endblock %}
+{% block content %}
+<h2 class="text-lg font-semibold">Publishes <span class="text-muted font-normal">({{ total }})</span></h2>
+
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <table class="w-full">
+    <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Title</th>
+        <th class="px-3 py-2 text-left font-medium">Cluster</th>
+        <th class="px-3 py-2 text-left font-medium">Platform</th>
+        <th class="px-3 py-2 text-left font-medium">URL</th>
+        <th class="px-3 py-2 text-left font-medium">CTA</th>
+        <th class="px-3 py-2 text-left font-medium">CTR</th>
+        <th class="px-3 py-2 text-left font-medium">Clicks</th>
+        <th class="px-3 py-2 text-left font-medium">Signups</th>
+        <th class="px-3 py-2 text-left font-medium">Published</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      {% for r in rows %}
+      <tr class="hover:bg-slate-800/30">
+        <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+        <td class="px-3 py-2 text-muted">{{ r.cluster or '-' }}</td>
+        <td class="px-3 py-2">{{ r.platform }}</td>
+        <td class="px-3 py-2">{% if r.published_url %}<a class="text-sky-400 hover:underline" href="{{ r.published_url }}" target="_blank">link</a>{% else %}-{% endif %}</td>
+        <td class="px-3 py-2">{{ r.cta_variant or '-' }}</td>
+        <td class="px-3 py-2">{{ r.ctr }}</td>
+        <td class="px-3 py-2">{{ r.clicks }}</td>
+        <td class="px-3 py-2">{{ r.signups }}</td>
+        <td class="px-3 py-2 text-muted">{{ r.published_at.strftime('%Y-%m-%d %H:%M') if r.published_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ paginate(page, per_page, total, "/dashboard/publishes", query) }}
+{% endblock %}

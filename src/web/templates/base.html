@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI Post Generator{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0f1115',
+            panel: '#161a22',
+            border: '#242a36',
+            muted: '#8a93a6',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-bg text-slate-100 font-sans text-sm antialiased">
+  <div class="flex min-h-screen">
+    {# ─── Sidebar ─────────────────────────── #}
+    <aside class="w-60 shrink-0 bg-panel border-r border-border flex flex-col">
+      <div class="px-5 py-4 border-b border-border">
+        <h1 class="text-base font-semibold tracking-tight">AI Post Generator</h1>
+        <p class="text-[11px] text-muted mt-0.5">Content growth engine</p>
+      </div>
+
+      <nav class="flex-1 p-3 space-y-5">
+        {% set base = "flex items-center gap-3 px-3 py-2 rounded-md text-muted hover:text-white hover:bg-slate-800/50 transition" %}
+        {% set on = "bg-slate-800 text-white" %}
+        {% set groups = [
+          ('Dashboard', [
+            ('index', '/', 'Overview', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'),
+          ]),
+          ('Setup', [
+            ('roles', '/dashboard/roles', 'Roles', 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z'),
+          ]),
+          ('Pipeline', [
+            ('intents', '/dashboard/intents', 'Intents', 'M13 10V3L4 14h7v7l9-11h-7z'),
+            ('clusters', '/dashboard/clusters', 'Clusters', 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 110-6 3 3 0 010 6z'),
+            ('content', '/dashboard/content', 'Content', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'),
+          ]),
+          ('Distribution', [
+            ('publishes', '/dashboard/publishes', 'Publishes', 'M12 19l9 2-9-18-9 18 9-2zm0 0v-8'),
+          ]),
+        ] %}
+        {% for group_name, items in groups %}
+        <div>
+          <div class="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ group_name }}</div>
+          <div class="space-y-1">
+            {% for key, href, label, icon in items %}
+            <a href="{{ href }}" class="{{ base }} {% if active == key %}{{ on }}{% endif %}">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="{{ icon }}"/></svg>
+              <span>{{ label }}</span>
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </nav>
+
+      <div class="p-3 border-t border-border text-[11px] text-muted">
+        <div>v1.0.0</div>
+      </div>
+    </aside>
+
+    {# ─── Main content ───────────────────────── #}
+    <main class="flex-1 min-w-0 px-6 py-6 space-y-8 overflow-x-auto">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {# ─── Reusable modal ─────────────────────── #}
+  {% macro modal(id, title, max_w="max-w-md") %}
+  <div id="{{ id }}" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60"
+       onclick="if(event.target===this) closeModal('{{ id }}')">
+    <div class="bg-panel border border-border rounded-lg shadow-xl w-full {{ max_w }} mx-4">
+      <div class="px-5 py-3 border-b border-border flex items-center justify-between">
+        <h3 class="font-semibold">{{ title }}</h3>
+        <button type="button" class="text-muted hover:text-white text-xl leading-none"
+                onclick="closeModal('{{ id }}')">&times;</button>
+      </div>
+      <div class="p-5">{{ caller() }}</div>
+    </div>
+  </div>
+  {% endmacro %}
+
+  <script>
+    function openModal(id) {
+      const el = document.getElementById(id);
+      if (el) { el.classList.remove('hidden'); el.classList.add('flex'); }
+    }
+    function closeModal(id) {
+      const el = document.getElementById(id);
+      if (el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('[id^="modal-"]').forEach(m => {
+          m.classList.add('hidden'); m.classList.remove('flex');
+        });
+      }
+    });
+  </script>
+
+  {# ─── Pagination ─────────────────────────── #}
+  {% macro paginate(page, per_page, total, base_url, query="") %}
+  {% set total_pages = ((total - 1) // per_page) + 1 if total > 0 else 1 %}
+  {% set sep = '&' if query else '?' %}
+  {% if total_pages > 1 %}
+  <nav class="flex items-center justify-between mt-3 text-xs">
+    <div class="text-muted">
+      Page {{ page }} of {{ total_pages }} · {{ total }} total
+    </div>
+    <div class="flex gap-1">
+      {% set link = "px-2.5 py-1 rounded-md border border-border hover:bg-slate-800/50" %}
+      {% set off = "px-2.5 py-1 rounded-md text-muted opacity-40 cursor-not-allowed" %}
+      {% if page > 1 %}
+        <a href="{{ base_url }}{{ '?'+query+'&' if query else '?' }}page=1" class="{{ link }}">« First</a>
+        <a href="{{ base_url }}{{ '?'+query+'&' if query else '?' }}page={{ page - 1 }}" class="{{ link }}">‹ Prev</a>
+      {% else %}
+        <span class="{{ off }}">« First</span><span class="{{ off }}">‹ Prev</span>
+      {% endif %}
+      {% if page < total_pages %}
+        <a href="{{ base_url }}{{ '?'+query+'&' if query else '?' }}page={{ page + 1 }}" class="{{ link }}">Next ›</a>
+        <a href="{{ base_url }}{{ '?'+query+'&' if query else '?' }}page={{ total_pages }}" class="{{ link }}">Last »</a>
+      {% else %}
+        <span class="{{ off }}">Next ›</span><span class="{{ off }}">Last »</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% endmacro %}
+
+  {% macro pill(value) %}
+    {% set color_map = {
+      'draft': 'bg-amber-900/40 text-amber-300',
+      'researched': 'bg-slate-700/40 text-slate-300',
+      'generated': 'bg-sky-900/40 text-sky-300',
+      'enriched': 'bg-indigo-900/40 text-indigo-300',
+      'approved': 'bg-emerald-900/40 text-emerald-300',
+      'published': 'bg-blue-900/40 text-blue-300',
+      'rejected': 'bg-rose-900/40 text-rose-300',
+      'archived': 'bg-zinc-700/40 text-zinc-300',
+      'pending': 'bg-violet-900/40 text-violet-300',
+      'queued': 'bg-cyan-900/40 text-cyan-300',
+      'covered': 'bg-emerald-900/40 text-emerald-300',
+      'refresh_needed': 'bg-amber-900/40 text-amber-300',
+      'mining': 'bg-violet-900/40 text-violet-300',
+      'active': 'bg-sky-900/40 text-sky-300',
+      'expanding': 'bg-indigo-900/40 text-indigo-300',
+    } %}
+    <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium {{ color_map.get(value, 'bg-slate-700/40 text-slate-300') }}">{{ value }}</span>
+  {% endmacro %}
+</body>
+</html>

@@ -1,20 +1,4 @@
 services:
-  metabase:
-    image: metabase/metabase:latest
-    restart: unless-stopped
-    ports:
-      - "${METABASE_PORT:-3000}:3000"
-    environment:
-      MB_DB_TYPE: postgres
-      MB_DB_DBNAME: ${DB_NAME:-mockreal_ge}
-      MB_DB_PORT: ${DB_PORT:-5432}
-      MB_DB_USER: ${DB_USER:-postgres}
-      MB_DB_PASS: ${DB_PASS}
-      MB_DB_HOST: host.docker.internal
-      JAVA_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
   app:
     build: .
     restart: unless-stopped
@@ -22,6 +6,6 @@ services:
       - "${APP_PORT:-8000}:8000"
     env_file: .env
     environment:
-      DB_HOST: host.docker.internal
+      DB_URL: ${DB_URL_DOCKER}
     extra_hosts:
       - "host.docker.internal:host-gateway"

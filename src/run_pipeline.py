@@ -1,14 +1,14 @@
 """Direct pipeline runner — bypasses FastAPI for testing.
 
 Usage:
-    uv run python run_pipeline.py                # Run all stages (research → generate → enrich → finalize)
-    uv run python run_pipeline.py --mine         # Run intent mining
-    uv run python run_pipeline.py --grow         # Run growth loop (expand covered clusters)
-    uv run python run_pipeline.py --research     # Only: pending intents → researched content
-    uv run python run_pipeline.py --generate     # Only: researched → generated (article + social)
-    uv run python run_pipeline.py --enrich       # Only: generated → enriched (images + wechat)
-    uv run python run_pipeline.py --finalize     # Only: enriched → draft → approve/publish
-    uv run python run_pipeline.py --all          # Mine intents, then run all stages
+    uv run python -m src.run_pipeline                # Run all stages (research → generate → enrich → finalize)
+    uv run python -m src.run_pipeline --mine         # Run intent mining
+    uv run python -m src.run_pipeline --grow         # Run growth loop (expand covered clusters)
+    uv run python -m src.run_pipeline --research     # Only: pending intents → researched content
+    uv run python -m src.run_pipeline --generate     # Only: researched → generated (article + social)
+    uv run python -m src.run_pipeline --enrich       # Only: generated → enriched (images + wechat)
+    uv run python -m src.run_pipeline --finalize     # Only: enriched → draft → approve/publish
+    uv run python -m src.run_pipeline --all          # Mine intents, then run all stages
 """
 import asyncio
 import sys

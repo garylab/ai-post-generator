@@ -5,7 +5,7 @@ import json
 import uuid
 
 from src.approval.telegram_bot import send_for_approval
-from src.config import get_seed_keywords, settings
+from src.config import settings
 from src.content.featured_image import generate_featured
 from src.content.generator import generate
 from src.content.humanizer import humanize
@@ -28,7 +28,31 @@ from src.utils.ai_client import embed_text
 from loguru import logger as log
 
 
-PUBLISHERS = [WebsitePublisher(), MediumPublisher(), LinkedInPublisher(), FacebookPublisher(), WechatPublisher()]
+PUBLISHER_REGISTRY = {
+    "website": WebsitePublisher,
+    "medium": MediumPublisher,
+    "linkedin": LinkedInPublisher,
+    "facebook": FacebookPublisher,
+    "wechat": WechatPublisher,
+}
+
+
+async def _build_publishers_for_role(role: dict | None) -> list:
+    """Construct publisher instances from a role's enabled social accounts."""
+    if not role:
+        return []
+    accounts = await db.fetch_role_accounts(role["id"], enabled_only=True)
+    publishers = []
+    for acc in accounts:
+        cls = PUBLISHER_REGISTRY.get(acc["platform"])
+        if not cls:
+            log.warning("Unknown platform '{}' for role '{}'", acc["platform"], role["slug"])
+            continue
+        creds = dict(acc.get("credentials") or {})
+        publishers.append(cls(credentials=creds, display_name=acc.get("display_name", "")))
+    # WeChat publisher is currently a stub but always runs to log content readiness
+    publishers.append(WechatPublisher())
+    return publishers
 
 
 # ── Stage 1: Research ─────────────────────────────────────────
@@ -101,6 +125,7 @@ async def stage_research() -> int:
                 intent_id=intent["id"],
                 research_data=research_payload,
                 title_embedding=title_emb,
+                role_id=cluster.get("role_id"),
             )
 
             await db.mark_intent_covered(intent["id"], content_id)
@@ -354,20 +379,29 @@ def _row_to_package(row: dict) -> ContentPackage:
 # ── Publishing ────────────────────────────────────────────────
 
 async def publish_approved(content_id: str) -> None:
-    """Called when content is approved — publish to all platforms."""
+    """Called when content is approved — publish to the owning role's accounts."""
     log.info("Publishing approved content: {}", content_id)
     row = await db.fetch_content(content_id)
     if not row:
         log.warning("Content {} not found", content_id)
         return
 
-    pkg = _row_to_package(row)
+    role = await db.fetch_role(row["role_id"]) if row.get("role_id") else None
+    if not role:
+        log.warning("Content {} has no associated role — cannot publish", content_id)
+        return
 
+    publishers = await _build_publishers_for_role(role)
+    if not publishers:
+        log.warning("Role '{}' has no enabled social accounts", role["slug"])
+        return
+
+    pkg = _row_to_package(row)
     cta_variant = await get_preferred_variant()
-    log.info("Using CTA variant '{}' (A/B winner)", cta_variant)
+    log.info("Using CTA variant '{}' (A/B winner) for role '{}'", cta_variant, role["slug"])
 
     results: list[PublishResult | Exception] = await asyncio.gather(
-        *[p.publish(pkg, cta_variant) for p in PUBLISHERS],
+        *[p.publish(pkg, cta_variant) for p in publishers],
         return_exceptions=True,
     )
 
@@ -385,7 +419,7 @@ async def publish_approved(content_id: str) -> None:
             log.warning("Publish failed on {}: {}", r.platform, r.error)
 
     await db.update_content_status(content_id, "published")
-    log.info("Published {} to {}/{} platforms", content_id, published, len(PUBLISHERS))
+    log.info("Published {} to {}/{} platforms", content_id, published, len(publishers))
 
 
 # ── Growth Loop ───────────────────────────────────────────────
@@ -455,35 +489,138 @@ async def growth_loop() -> None:
         log.error("Growth loop failed: {}", exc, exc_info=True)
 
 
+# ── Per-cluster pipeline (manual trigger) ─────────────────────
+
+async def run_pipeline_for_cluster(cluster_id: int, max_articles: int | None = None) -> None:
+    """Research + generate + enrich + finalize all pending intents in one cluster."""
+    from src.content.researcher import research_topic
+
+    log.info("========== Starting pipeline for cluster id={} ==========", cluster_id)
+    try:
+        cluster_rows = await db._fetch_clusters_by_id([cluster_id]) if hasattr(db, "_fetch_clusters_by_id") else None
+        # Fallback: query directly
+        cluster = None
+        if not cluster_rows:
+            from sqlalchemy import text as _t
+            async with db.get_session() as s:
+                row = (await s.execute(_t(
+                    "SELECT id, name, slug, role_id FROM intent_clusters WHERE id = :id"
+                ), {"id": cluster_id})).mappings().first()
+                if row:
+                    cluster = dict(row)
+        else:
+            cluster = cluster_rows[0]
+
+        if not cluster:
+            log.warning("Cluster id={} not found", cluster_id)
+            return
+
+        pending = await db.fetch_cluster_intents(cluster["id"], status="pending")
+        if not pending:
+            log.info("Cluster '{}' has no pending intents", cluster["name"])
+            return
+
+        cap = max_articles or settings.max_articles_per_run
+        pending = pending[:cap]
+        log.info("Researching {} pending intent(s) in cluster '{}'", len(pending), cluster["name"])
+
+        for intent in pending:
+            try:
+                title_emb = await embed_text(intent["title"])
+                if title_emb:
+                    existing = await db.find_similar_content(title_emb, threshold=0.85, days=60)
+                    if existing:
+                        log.warning("Skipping '{}' — similar to '{}' (sim={:.3f})",
+                                    intent["title"], existing["title"], existing["similarity"])
+                        await db.mark_intent_covered(intent["id"], existing["content_id"])
+                        continue
+
+                research = await research_topic(intent["title"])
+                content_id = f"mr-{uuid.uuid4().hex[:12]}"
+                raw_score = float(intent.get("priority_score", 7))
+                content_score = round(min(raw_score / 125, 10.0), 1)
+                research_payload = {
+                    "synthesis": research.get("synthesis", ""),
+                    "sources": research.get("sources", []),
+                    "source_images": research.get("source_images", []),
+                }
+                await db.insert_researched_content(
+                    content_id=content_id,
+                    title=intent["title"],
+                    cluster=cluster["slug"],
+                    score=content_score,
+                    intent_id=intent["id"],
+                    research_data=research_payload,
+                    title_embedding=title_emb,
+                    role_id=cluster.get("role_id"),
+                )
+                await db.mark_intent_covered(intent["id"], content_id)
+                log.info("Researched '{}' → {}", intent["title"], content_id)
+            except Exception as exc:
+                log.error("Research failed for intent {}: {}", intent.get("id"), exc)
+
+        # Continue through downstream stages globally — they'll pick up our new rows
+        n_g = await stage_generate()
+        n_e = await stage_enrich()
+        n_f = await stage_finalize()
+        log.info(
+            "========== Cluster '{}' pipeline done: generate={} enrich={} finalize={} ==========",
+            cluster["name"], n_g, n_e, n_f,
+        )
+    except Exception as exc:
+        log.error("Per-cluster pipeline failed: {}", exc, exc_info=True)
+
+
 # ── Intent Mining ─────────────────────────────────────────────
 
-async def intent_mining_pipeline() -> None:
-    """Mine user intents, deduplicate, cluster, and save to DB."""
+async def intent_mining_pipeline(role_id: int | None = None) -> None:
+    """Mine user intents per role, deduplicate, cluster, and save to DB.
+
+    If role_id is given, mines only that role; otherwise mines all enabled roles.
+    """
     from src.pipeline.intent_miner import mine_intents
     from src.pipeline.intent_clusterer import process_intents
 
     log.info("========== Starting intent mining pipeline ==========")
     try:
-        seeds = get_seed_keywords()
-        if not seeds:
-            log.warning("No seed keywords configured — skipping intent mining")
+        if role_id is not None:
+            role = await db.fetch_role(role_id)
+            roles = [role] if role else []
+        else:
+            roles = await db.fetch_roles(enabled_only=True)
+        if not roles:
+            log.warning("No roles to mine — skipping")
             return
 
-        batch_id = str(uuid.uuid4())
-        log.info("Mining intents from {} seeds (batch={})", len(seeds), batch_id[:8])
+        for role in roles:
+            seeds = [
+                k["keyword"]
+                for k in await db.fetch_seed_keywords(role_id=role["id"], enabled_only=True)
+            ]
+            if not seeds:
+                log.warning("Role '{}' has no enabled seed keywords — skipping", role["slug"])
+                continue
 
-        raw_intents = await mine_intents(seeds)
-        if not raw_intents:
-            log.warning("No intents mined — check API keys and seed keywords")
-            return
+            batch_id = str(uuid.uuid4())
+            log.info(
+                "[role={}] Mining intents from {} seeds (batch={})",
+                role["slug"], len(seeds), batch_id[:8],
+            )
 
-        summary = await process_intents(raw_intents, batch_id)
+            raw_intents = await mine_intents(seeds)
+            if not raw_intents:
+                log.warning("[role={}] No intents mined", role["slug"])
+                continue
+
+            summary = await process_intents(raw_intents, batch_id, role_id=role["id"])
+            log.info(
+                "[role={}] {} raw → {} new intents in {} clusters",
+                role["slug"], summary["total"], summary["intents"], summary["clusters"],
+            )
+
         stats = await db.fetch_intent_stats()
-
         log.info(
-            "========== Intent mining complete: {} raw → {} new intents in {} clusters "
-            "(DB total: {} intents, {} pending, {} covered) ==========",
-            summary["total"], summary["intents"], summary["clusters"],
+            "========== Intent mining complete (DB total: {} intents, {} pending, {} covered) ==========",
             stats.get("total_intents", 0), stats.get("pending", 0), stats.get("covered", 0),
         )
     except Exception as exc:

@@ -195,6 +195,7 @@ async def _name_clusters(clusters: list[dict]) -> list[str]:
 async def process_intents(
     raw_intents: list[RawIntent],
     batch_id: str,
+    role_id: int | None = None,
 ) -> dict:
     """Full pipeline: dedup → embed → cluster → score → persist.
 
@@ -249,6 +250,7 @@ async def process_intents(
             centroid_embedding=cl["centroid"].tolist(),
             intent_count=len(cl["intents"]),
             priority_score=cluster_priority,
+            role_id=role_id,
         )
 
         intent_ids: list[int] = []
@@ -264,6 +266,7 @@ async def process_intents(
                 cluster_id=cluster_id,
                 is_pillar=(j == pillar_idx),
                 batch_id=batch_id,
+                role_id=role_id,
             )
             intent_ids.append(intent_id)
 

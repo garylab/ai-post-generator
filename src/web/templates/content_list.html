@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set active = 'content' %}
+{% from "base.html" import pill, paginate %}
+{% block page_title %}Content{% endblock %}
+{% block content %}
+<h2 class="text-lg font-semibold">Content <span class="text-muted font-normal">({{ total }})</span></h2>
+
+<form class="flex flex-wrap gap-2 items-center" method="get">
+  {% set ctl = "bg-panel border border-border rounded-md px-3 py-1.5 text-slate-100" %}
+  <select name="status" class="{{ ctl }}">
+    <option value="">All statuses</option>
+    {% for s in statuses %}
+    <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <select name="cluster" class="{{ ctl }}">
+    <option value="">All clusters</option>
+    {% for c in clusters %}
+    <option value="{{ c }}" {% if c == selected_cluster %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5">Filter</button>
+</form>
+
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <table class="w-full">
+    <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Title</th>
+        <th class="px-3 py-2 text-left font-medium">Cluster</th>
+        <th class="px-3 py-2 text-left font-medium">Status</th>
+        <th class="px-3 py-2 text-left font-medium">Score</th>
+        <th class="px-3 py-2 text-left font-medium">Iter</th>
+        <th class="px-3 py-2 text-left font-medium">Created</th>
+        <th class="px-3 py-2 text-left font-medium">Updated</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      {% for r in rows %}
+      <tr class="hover:bg-slate-800/30">
+        <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+        <td class="px-3 py-2 text-muted">{{ r.cluster or '-' }}</td>
+        <td class="px-3 py-2">{{ pill(r.status) }}</td>
+        <td class="px-3 py-2">{{ r.score }}</td>
+        <td class="px-3 py-2 text-muted">{{ r.iteration_count }}</td>
+        <td class="px-3 py-2 text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
+        <td class="px-3 py-2 text-muted">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ paginate(page, per_page, total, "/dashboard/content", query) }}
+{% endblock %}

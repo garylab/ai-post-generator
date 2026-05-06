@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% set active = 'index' %}
+{% from "base.html" import pill %}
+{% block page_title %}Overview{% endblock %}
+{% block content %}
+{% set btn = "bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5 text-xs" %}
+{% set btn_alt = "bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium rounded-md px-3 py-1.5 text-xs" %}
+
+<section class="bg-panel border border-border rounded-lg p-4 space-y-3">
+  <div class="flex items-center justify-between">
+    <h2 class="text-lg font-semibold">Run pipeline</h2>
+    <span class="text-[11px] text-muted">jobs run in the background — watch logs/dashboard.log</span>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <form method="post" action="/dashboard/run/mine"><button class="{{ btn }}">Mine intents (all roles)</button></form>
+    <form method="post" action="/dashboard/run/pipeline"><button class="{{ btn }}">Run full pipeline</button></form>
+    {% for s in ['research', 'generate', 'enrich', 'finalize'] %}
+    <form method="post" action="/dashboard/run/stage">
+      <input type="hidden" name="stage" value="{{ s }}">
+      <button class="{{ btn_alt }}">Run stage: {{ s }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Overview</h2>
+  <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
+    {% set cards = [
+      ('Total intents', stats.total_intents),
+      ('Pending intents', stats.pending_intents),
+      ('Covered intents', stats.covered_intents),
+      ('Clusters', stats.total_clusters),
+      ('Total content', stats.total_content),
+      ('Drafts', stats.draft_content),
+      ('Approved', stats.approved_content),
+      ('Published', stats.published_content),
+      ('Publish events', stats.total_publishes),
+    ] %}
+    {% for label, value in cards %}
+    <div class="bg-panel border border-border rounded-lg p-4">
+      <div class="text-xs uppercase tracking-wider text-muted">{{ label }}</div>
+      <div class="text-2xl font-semibold mt-1">{{ value or 0 }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Content by status</h2>
+  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+        <tr><th class="px-3 py-2 text-left font-medium">Status</th><th class="px-3 py-2 text-left font-medium">Count</th></tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for r in by_status %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-3 py-2">{{ pill(r.status) }}</td>
+          <td class="px-3 py-2">{{ r.n }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Recent content</h2>
+  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+        <tr>
+          <th class="px-3 py-2 text-left font-medium">Title</th>
+          <th class="px-3 py-2 text-left font-medium">Cluster</th>
+          <th class="px-3 py-2 text-left font-medium">Status</th>
+          <th class="px-3 py-2 text-left font-medium">Score</th>
+          <th class="px-3 py-2 text-left font-medium">Created</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for r in recent_content %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+          <td class="px-3 py-2 text-muted">{{ r.cluster or '-' }}</td>
+          <td class="px-3 py-2">{{ pill(r.status) }}</td>
+          <td class="px-3 py-2">{{ r.score }}</td>
+          <td class="px-3 py-2 text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Recent publishes</h2>
+  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+        <tr>
+          <th class="px-3 py-2 text-left font-medium">Title</th>
+          <th class="px-3 py-2 text-left font-medium">Platform</th>
+          <th class="px-3 py-2 text-left font-medium">URL</th>
+          <th class="px-3 py-2 text-left font-medium">Published</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for r in recent_publishes %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+          <td class="px-3 py-2">{{ r.platform }}</td>
+          <td class="px-3 py-2">{% if r.published_url %}<a class="text-sky-400 hover:underline" href="{{ r.published_url }}" target="_blank">link</a>{% else %}-{% endif %}</td>
+          <td class="px-3 py-2 text-muted">{{ r.published_at.strftime('%Y-%m-%d %H:%M') if r.published_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

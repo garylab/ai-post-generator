@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% set active = 'content' %}
+{% from "base.html" import pill %}
+{% block title %}{{ row.title }}{% endblock %}
+{% block page_title %}Content · {{ row.title }}{% endblock %}
+{% block content %}
+{% set sec = "bg-panel border border-border rounded-lg p-5" %}
+{% set pre = "bg-slate-950 border border-border rounded-md p-3 overflow-x-auto text-xs whitespace-pre-wrap" %}
+
+<p><a class="text-sky-400 hover:underline" href="/dashboard/content">← Back to content</a></p>
+
+{# ─── Header (always visible) ──────── #}
+<div>
+  <h2 class="text-xl font-semibold">{{ row.title }}</h2>
+  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
+    {{ pill(row.status) }}
+    <span>cluster: <span class="text-slate-200">{{ row.cluster or '-' }}</span></span>
+    <span>·</span><span>score: <span class="text-slate-200">{{ row.score }}</span></span>
+    <span>·</span><span>priority: <span class="text-slate-200">{{ row.priority }}</span></span>
+    <span>·</span><span>cta: <span class="text-slate-200">{{ row.active_cta }}</span></span>
+    <span>·</span><span>iter: <span class="text-slate-200">{{ row.iteration_count }}</span></span>
+    <span>·</span><span>id: <code class="text-slate-300">{{ row.content_id }}</code></span>
+  </div>
+</div>
+
+{# ─── Tabs ──────────────────────────── #}
+<nav class="border-b border-border flex gap-1 flex-wrap">
+  {% set tab_base = "px-4 py-2 text-sm border-b-2 -mb-px transition" %}
+  {% set tab_off = "border-transparent text-muted hover:text-white" %}
+  {% set tab_on = "border-sky-500 text-white font-medium" %}
+  {% set tabs = [
+    ('overview', 'Overview', true),
+    ('article', 'Article', row.article_html),
+    ('medium', 'Medium', row.medium_article),
+    ('wechat', 'WeChat', row.wechat_article),
+    ('social', 'Social', row.social_posts),
+    ('publishes', 'Publishes', true),
+  ] %}
+  {% for key, label, has in tabs %}
+  <a href="/dashboard/content/{{ row.content_id }}/{{ key }}"
+     class="{{ tab_base }} {% if active_tab == key %}{{ tab_on }}{% elif not has %}border-transparent text-slate-600 cursor-not-allowed pointer-events-none{% else %}{{ tab_off }}{% endif %}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{# ─── Overview ──────────────────────── #}
+{% if active_tab == 'overview' %}
+<section class="{{ sec }} space-y-3">
+  <h3 class="text-base font-semibold">Meta description</h3>
+  <p class="text-sm">{{ row.meta_description or '—' }}</p>
+</section>
+{% if row.outline %}
+<section class="{{ sec }} space-y-2">
+  <h3 class="text-base font-semibold">Outline</h3>
+  <ul class="list-disc list-inside space-y-1 text-sm">
+    {% for s in row.outline %}<li>{{ s }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if row.seo_keywords %}
+<section class="{{ sec }} space-y-2">
+  <h3 class="text-base font-semibold">SEO keywords</h3>
+  <div class="flex flex-wrap gap-2">
+    {% for kw in row.seo_keywords %}
+    <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-700/40 text-slate-300">{{ kw }}</span>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% if row.cta_variant_a or row.cta_variant_b %}
+<section class="{{ sec }} space-y-2">
+  <h3 class="text-base font-semibold">CTA variants</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+    <div>
+      <div class="text-xs text-muted mb-1">Variant A</div>
+      <div class="bg-slate-950 border border-border rounded-md p-3">{{ row.cta_variant_a or '—' }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-muted mb-1">Variant B</div>
+      <div class="bg-slate-950 border border-border rounded-md p-3">{{ row.cta_variant_b or '—' }}</div>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+
+{# ─── Article ─────────────────────── #}
+{% if active_tab == 'article' %}
+<section class="{{ sec }}">
+  {% if row.article_html %}
+  <article class="prose prose-invert max-w-none">{{ row.article_html | safe }}</article>
+  {% else %}
+  <p class="text-muted text-sm">No article HTML yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── Medium ──────────────────────── #}
+{% if active_tab == 'medium' %}
+<section class="{{ sec }}">
+  {% if row.medium_article %}
+  <pre class="{{ pre }}">{{ row.medium_article }}</pre>
+  {% else %}
+  <p class="text-muted text-sm">No Medium variant yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── WeChat ──────────────────────── #}
+{% if active_tab == 'wechat' %}
+<section class="{{ sec }}">
+  {% if row.wechat_article %}
+  <pre class="{{ pre }}">{{ row.wechat_article }}</pre>
+  {% else %}
+  <p class="text-muted text-sm">No WeChat variant yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── Social ──────────────────────── #}
+{% if active_tab == 'social' %}
+{% set platform_styles = {
+  'linkedin':  {'name': 'LinkedIn',  'color': 'bg-[#0a66c2]',  'limit': 3000, 'icon': 'in'},
+  'facebook':  {'name': 'Facebook',  'color': 'bg-[#1877f2]',  'limit': 63206, 'icon': 'f'},
+  'twitter':   {'name': 'X / Twitter','color': 'bg-black',     'limit': 280,  'icon': '𝕏'},
+  'x':         {'name': 'X / Twitter','color': 'bg-black',     'limit': 280,  'icon': '𝕏'},
+  'instagram': {'name': 'Instagram', 'color': 'bg-gradient-to-tr from-fuchsia-500 to-amber-400', 'limit': 2200, 'icon': '◫'},
+  'wechat':    {'name': 'WeChat',    'color': 'bg-[#07c160]',  'limit': None, 'icon': '微'},
+  'medium':    {'name': 'Medium',    'color': 'bg-emerald-700','limit': None, 'icon': 'M'},
+} %}
+
+{% macro social_card(platform_key, text) %}
+{% set ps = platform_styles.get(platform_key, {'name': platform_key|capitalize, 'color': 'bg-slate-700', 'limit': None, 'icon': '#'}) %}
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <div class="flex items-center gap-3 px-4 py-2 border-b border-border bg-slate-900/40">
+    <span class="w-7 h-7 rounded-full {{ ps.color }} flex items-center justify-center text-white text-xs font-bold">{{ ps.icon }}</span>
+    <span class="font-medium">{{ ps.name }}</span>
+    <span class="ml-auto text-[11px] text-muted">
+      {{ text|length }} chars{% if ps.limit %} / {{ ps.limit }}{% if text|length > ps.limit %} <span class="text-rose-400">over limit</span>{% endif %}{% endif %}
+    </span>
+  </div>
+  <div class="p-4 whitespace-pre-wrap text-sm leading-relaxed">{{ text }}</div>
+</div>
+{% endmacro %}
+
+{% set posts_a = row.social_posts or {} %}
+{% set posts_b = row.social_posts_variant_b or {} %}
+{# Order: known platforms first (in declared order), then any extras #}
+{% set ordered = [] %}
+{% for k in platform_styles.keys() %}
+  {% if k in posts_a or k in posts_b %}{% set _ = ordered.append(k) %}{% endif %}
+{% endfor %}
+{% for k in posts_a.keys() %}{% if k not in ordered %}{% set _ = ordered.append(k) %}{% endif %}{% endfor %}
+{% for k in posts_b.keys() %}{% if k not in ordered %}{% set _ = ordered.append(k) %}{% endif %}{% endfor %}
+
+<section class="space-y-3">
+  {% if ordered %}
+  <div class="grid grid-cols-2 gap-3 sticky top-0 z-10">
+    <div class="text-xs font-semibold uppercase tracking-wider text-muted bg-bg/80 backdrop-blur py-1">Variant A</div>
+    <div class="text-xs font-semibold uppercase tracking-wider text-muted bg-bg/80 backdrop-blur py-1">Variant B</div>
+  </div>
+  {% for key in ordered %}
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      {% if posts_a.get(key) %}{{ social_card(key, posts_a[key]) }}
+      {% else %}<div class="bg-panel/40 border border-dashed border-border rounded-lg p-4 text-center text-muted text-xs h-full flex items-center justify-center">No {{ platform_styles.get(key, {}).get('name', key) }} variant A</div>{% endif %}
+    </div>
+    <div>
+      {% if posts_b.get(key) %}{{ social_card(key, posts_b[key]) }}
+      {% else %}<div class="bg-panel/40 border border-dashed border-border rounded-lg p-4 text-center text-muted text-xs h-full flex items-center justify-center">No {{ platform_styles.get(key, {}).get('name', key) }} variant B</div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="text-muted text-sm {{ sec }}">No social posts yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── Publishes ──────────────────── #}
+{% if active_tab == 'publishes' %}
+<section>
+  {% if publishes %}
+  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+        <tr>
+          <th class="px-3 py-2 text-left font-medium">Platform</th>
+          <th class="px-3 py-2 text-left font-medium">URL</th>
+          <th class="px-3 py-2 text-left font-medium">CTA</th>
+          <th class="px-3 py-2 text-left font-medium">Published</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for p in publishes %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-3 py-2">{{ p.platform }}</td>
+          <td class="px-3 py-2">{% if p.published_url %}<a class="text-sky-400 hover:underline" href="{{ p.published_url }}" target="_blank">{{ p.published_url }}</a>{% else %}—{% endif %}</td>
+          <td class="px-3 py-2">{{ p.cta_variant or '—' }}</td>
+          <td class="px-3 py-2 text-muted">{{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted text-sm {{ sec }}">No publish events yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

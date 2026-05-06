@@ -6,7 +6,6 @@ import httpx
 from loguru import logger as log
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from src.config import settings
 from src.publishers.base import BasePublisher, PublishResult
 from src.storage.models import ContentPackage
 
@@ -23,7 +22,9 @@ class WebsitePublisher(BasePublisher):
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=2, max=10))
     async def publish(self, pkg: ContentPackage, cta_variant: str = "a") -> PublishResult:
-        if not settings.website_api_url:
+        api_url = self.creds.get("api_url", "")
+        api_key = self.creds.get("api_key", "")
+        if not api_url:
             return PublishResult(self.platform, "", False, "No website URL configured")
 
         cta_html = self._pick_cta(pkg, cta_variant)
@@ -41,17 +42,14 @@ class WebsitePublisher(BasePublisher):
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"{settings.website_api_url}/api/blogs/create",
+                f"{api_url}/api/blogs/create",
                 json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": settings.website_api_key,
-                },
+                headers={"Content-Type": "application/json", "X-API-Key": api_key},
             )
             resp.raise_for_status()
             data = resp.json()
 
         slug = data.get("slug", payload["slug"])
-        url = f"{settings.website_api_url}/blog/{slug}"
+        url = f"{api_url}/blog/{slug}"
         log.info("Published to website: {}", url)
         return PublishResult(self.platform, url, True, post_body=html)

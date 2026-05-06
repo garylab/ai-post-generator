@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from src.storage.models import ContentPackage
 
 
-
 @dataclass
 class PublishResult:
     platform: str
@@ -18,6 +17,10 @@ class PublishResult:
 
 class BasePublisher(abc.ABC):
     platform: str = ""
+
+    def __init__(self, credentials: dict | None = None, display_name: str = ""):
+        self.creds = credentials or {}
+        self.display_name = display_name
 
     @abc.abstractmethod
     async def publish(self, pkg: ContentPackage, cta_variant: str = "A") -> PublishResult:

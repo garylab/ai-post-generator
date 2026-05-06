@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% set active = 'roles' %}
+{% from "base.html" import pill, modal, paginate %}
+{% block page_title %}Roles{% endblock %}
+{% block content %}
+{% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
+{% set btn_primary = "bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5" %}
+
+<div class="flex items-center justify-between">
+  <div>
+    <h2 class="text-lg font-semibold">Roles <span class="text-muted font-normal">({{ total }})</span></h2>
+    <p class="text-muted text-xs mt-1">Each role has its own keywords and social accounts.</p>
+  </div>
+  <button class="{{ btn_primary }}" onclick="openModal('modal-add-role')">+ New role</button>
+</div>
+
+{% call modal('modal-add-role', 'Create role') %}
+<form method="post" action="/dashboard/roles/add" class="space-y-3">
+  <label class="block">
+    <span class="text-xs text-muted">Name *</span>
+    <input name="name" required placeholder="Mockreal" class="{{ inp }} w-full mt-1">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Description</span>
+    <input name="description" class="{{ inp }} w-full mt-1">
+  </label>
+  <div class="flex justify-end gap-2 pt-2">
+    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-add-role')">Cancel</button>
+    <button class="{{ btn_primary }}">Create</button>
+  </div>
+</form>
+{% endcall %}
+
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <table class="w-full">
+    <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Name</th>
+        <th class="px-3 py-2 text-left font-medium">Status</th>
+        <th class="px-3 py-2 text-left font-medium">Keywords</th>
+        <th class="px-3 py-2 text-left font-medium">Accounts</th>
+        <th class="px-3 py-2 text-left font-medium">Content</th>
+        <th class="px-3 py-2 text-left font-medium">Created</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      {% for r in rows %}
+      {% set c = counts.get(r.id, {}) %}
+      <tr class="hover:bg-slate-800/30">
+        <td class="px-3 py-2 font-medium">
+          <a class="text-sky-400 hover:underline" href="/dashboard/roles/{{ r.id }}">{{ r.name }}</a>
+        </td>
+        <td class="px-3 py-2">
+          {% if r.enabled %}
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-900/40 text-emerald-300">enabled</span>
+          {% else %}
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-700/40 text-zinc-300">disabled</span>
+          {% endif %}
+        </td>
+        <td class="px-3 py-2">{{ c.get('keyword_count', 0) }}</td>
+        <td class="px-3 py-2">{{ c.get('account_count', 0) }}</td>
+        <td class="px-3 py-2">{{ c.get('content_count', 0) }}</td>
+        <td class="px-3 py-2 text-muted">{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="px-3 py-6 text-center text-muted">No roles yet. Add one above.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ paginate(page, per_page, total, "/dashboard/roles", query) }}
+{% endblock %}
