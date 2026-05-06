@@ -38,16 +38,16 @@ PUBLISHER_REGISTRY = {
 }
 
 
-async def _build_publishers_for_role(role) -> list:
-    """Construct publisher instances from a role's enabled social accounts."""
-    if not role:
+async def _build_publishers_for_brand(brand) -> list:
+    """Construct publisher instances from a brand's enabled social accounts."""
+    if not brand:
         return []
-    accounts = await db.fetch_role_accounts(role.id, enabled_only=True)
+    accounts = await db.fetch_brand_accounts(brand.id, enabled_only=True)
     publishers = []
     for acc in accounts:
         cls = PUBLISHER_REGISTRY.get(acc.platform)
         if not cls:
-            log.warning("Unknown platform '{}' for role '{}'", acc.platform, role.slug)
+            log.warning("Unknown platform '{}' for brand '{}'", acc.platform, brand.slug)
             continue
         creds = dict(acc.credentials or {})
         publishers.append(cls(credentials=creds, display_name=acc.display_name))
@@ -130,7 +130,7 @@ async def stage_research() -> int:
                 intent_id=intent["id"],
                 research_data=research_payload,
                 title_embedding=title_emb,
-                role_id=cluster.get("role_id"),
+                brand_id=cluster.get("brand_id"),
             )
 
             await db.mark_intent_covered(intent["id"], content_id)
@@ -289,18 +289,18 @@ async def stage_finalize() -> int:
             )
 
             # Routing rule:
-            #   role.telegram_enabled  → send approval request via that role's bot
+            #   brand.telegram_enabled  → send approval request via that brand's bot
             #   otherwise              → auto-approve and publish immediately
-            role = await db.fetch_role(row["role_id"]) if row.get("role_id") else None
-            send_via_telegram = bool(role and role.telegram_enabled
-                                     and role.telegram_bot_token and role.telegram_chat_id)
+            brand = await db.fetch_brand(row["brand_id"]) if row.get("brand_id") else None
+            send_via_telegram = bool(brand and brand.telegram_enabled
+                                     and brand.telegram_bot_token and brand.telegram_chat_id)
 
             if send_via_telegram:
                 pkg = _row_to_package(row)
-                sent = await send_for_approval(pkg, role=role)
+                sent = await send_for_approval(pkg, brand=brand)
                 if sent:
-                    log.info("[stage_finalize] Queued '{}' for Telegram approval (role={})",
-                             row["title"], role.slug)
+                    log.info("[stage_finalize] Queued '{}' for Telegram approval (brand={})",
+                             row["title"], brand.slug)
                 else:
                     # Fallback: if telegram send failed, auto-approve to keep the pipeline moving
                     log.warning("[stage_finalize] Telegram send failed, auto-approving '{}'", row["title"])
@@ -412,26 +412,26 @@ def _row_to_package(row: dict) -> ContentPackage:
 # ── Publishing ────────────────────────────────────────────────
 
 async def publish_approved(content_id: str) -> None:
-    """Called when content is approved — publish to the owning role's accounts."""
+    """Called when content is approved — publish to the owning brand's accounts."""
     log.info("Publishing approved content: {}", content_id)
     row = await db.fetch_content(content_id)
     if not row:
         log.warning("Content {} not found", content_id)
         return
 
-    role = await db.fetch_role(row["role_id"]) if row.get("role_id") else None
-    if not role:
-        log.warning("Content {} has no associated role — cannot publish", content_id)
+    brand = await db.fetch_brand(row["brand_id"]) if row.get("brand_id") else None
+    if not brand:
+        log.warning("Content {} has no associated brand — cannot publish", content_id)
         return
 
-    publishers = await _build_publishers_for_role(role)
+    publishers = await _build_publishers_for_brand(brand)
     if not publishers:
-        log.warning("Role '{}' has no enabled social accounts", role.slug)
+        log.warning("Brand '{}' has no enabled social accounts", brand.slug)
         return
 
     pkg = _row_to_package(row)
     cta_variant = await get_preferred_variant()
-    log.info("Using CTA variant '{}' (A/B winner) for role '{}'", cta_variant, role.slug)
+    log.info("Using CTA variant '{}' (A/B winner) for brand '{}'", cta_variant, brand.slug)
 
     results: list[PublishResult | Exception] = await asyncio.gather(
         *[p.publish(pkg, cta_variant) for p in publishers],
@@ -528,7 +528,7 @@ async def _fetch_cluster_meta(cluster_id: int) -> dict | None:
     from sqlalchemy import text as _t
     async with db.get_session() as s:
         row = (await s.execute(_t(
-            "SELECT id, name, slug, role_id FROM intent_clusters WHERE id = :id"
+            "SELECT id, name, slug, brand_id FROM intent_clusters WHERE id = :id"
         ), {"id": cluster_id})).mappings().first()
     return dict(row) if row else None
 
@@ -580,7 +580,7 @@ async def enqueue_cluster(cluster_id: int, max_articles: int | None = None) -> d
                 score=content_score,
                 intent_id=intent["id"],
                 title_embedding=title_emb,
-                role_id=cluster.get("role_id"),
+                brand_id=cluster.get("brand_id"),
             )
             await db.mark_intent_covered(intent["id"], content_id)
             queued += 1
@@ -607,7 +607,7 @@ async def run_pipeline_for_cluster(cluster_id: int) -> None:
     try:
         async with db.get_session() as s:
             queued_rows = (await s.execute(_t("""
-                SELECT content_id, title, score, intent_id, role_id
+                SELECT content_id, title, score, intent_id, brand_id
                 FROM content WHERE status = 'queued' AND cluster = :slug
                 ORDER BY created_at ASC
             """), {"slug": cluster["slug"]})).mappings().all()
@@ -645,31 +645,31 @@ async def run_pipeline_for_cluster(cluster_id: int) -> None:
 
 # ── Intent Mining ─────────────────────────────────────────────
 
-async def intent_mining_pipeline(role_id: int | None = None) -> None:
-    """Mine user intents per role, deduplicate, cluster, and save to DB.
+async def intent_mining_pipeline(brand_id: int | None = None) -> None:
+    """Mine user intents per brand, deduplicate, cluster, and save to DB.
 
-    If role_id is given, mines only that role; otherwise mines all enabled roles.
+    If brand_id is given, mines only that brand; otherwise mines all enabled brands.
     """
     from src.pipeline.intent_miner import mine_intents, fetch_trends
     from src.pipeline.intent_clusterer import process_intents
 
     log.info("========== Starting intent mining pipeline ==========")
     try:
-        if role_id is not None:
-            role = await db.fetch_role(role_id)
-            roles = [role] if role else []
+        if brand_id is not None:
+            brand = await db.fetch_brand(brand_id)
+            brands = [brand] if brand else []
         else:
-            roles = await db.fetch_roles(enabled_only=True)
-        if not roles:
-            log.warning("No roles to mine — skipping")
+            brands = await db.fetch_brands(enabled_only=True)
+        if not brands:
+            log.warning("No brands to mine — skipping")
             return
 
-        for role in roles:
-            existing = await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
+        for brand in brands:
+            existing = await db.fetch_seed_keywords(brand_id=brand.id, enabled_only=True)
             manual_seeds = [k.keyword for k in existing if k.source == "manual"]
             all_seeds = [k.keyword for k in existing]
             if not all_seeds:
-                log.warning("Role '{}' has no enabled seed keywords — skipping", role.slug)
+                log.warning("Brand '{}' has no enabled seed keywords — skipping", brand.slug)
                 continue
 
             # 0. One Trends call per manual seed: persist queries as new
@@ -680,37 +680,37 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
                 for seed in manual_seeds:
                     queries, t_intents = await fetch_trends(seed)
                     for q, score in queries:
-                        await db.insert_seed_keyword(role.id, q, source="trends", score=score)
+                        await db.insert_seed_keyword(brand.id, q, source="trends", score=score)
                         added += 1
                     trends_intents.extend(t_intents)
                 if added:
                     log.info(
-                        "[role={}] Trends: +{} keyword candidates, +{} direct intents",
-                        role.slug, added, len(trends_intents),
+                        "[brand={}] Trends: +{} keyword candidates, +{} direct intents",
+                        brand.slug, added, len(trends_intents),
                     )
                 # Re-fetch keyword list after expansion
                 all_seeds = [
                     k.keyword
-                    for k in await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
+                    for k in await db.fetch_seed_keywords(brand_id=brand.id, enabled_only=True)
                 ]
             except Exception as exc:
-                log.warning("[role={}] Trends expansion failed: {}", role.slug, exc)
+                log.warning("[brand={}] Trends expansion failed: {}", brand.slug, exc)
 
             batch_id = str(uuid.uuid4())
             log.info(
-                "[role={}] Mining intents from {} seeds (batch={})",
-                role.slug, len(all_seeds), batch_id[:8],
+                "[brand={}] Mining intents from {} seeds (batch={})",
+                brand.slug, len(all_seeds), batch_id[:8],
             )
 
             raw_intents = list(trends_intents) + await mine_intents(all_seeds)
             if not raw_intents:
-                log.warning("[role={}] No intents mined", role.slug)
+                log.warning("[brand={}] No intents mined", brand.slug)
                 continue
 
-            summary = await process_intents(raw_intents, batch_id, role_id=role.id)
+            summary = await process_intents(raw_intents, batch_id, brand_id=brand.id)
             log.info(
-                "[role={}] {} raw → {} new intents in {} clusters",
-                role.slug, summary["total"], summary["intents"], summary["clusters"],
+                "[brand={}] {} raw → {} new intents in {} clusters",
+                brand.slug, summary["total"], summary["intents"], summary["clusters"],
             )
 
         stats = await db.fetch_intent_stats()

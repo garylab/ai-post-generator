@@ -218,7 +218,7 @@ async def _name_clusters(clusters: list[dict]) -> list[str]:
 async def process_intents(
     raw_intents: list[RawIntent],
     batch_id: str,
-    role_id: int | None = None,
+    brand_id: int | None = None,
 ) -> dict:
     """Full pipeline: dedup → embed → match-existing-clusters → cluster leftovers → score → persist.
 
@@ -252,9 +252,9 @@ async def process_intents(
 
     cluster_sim = await settings_store.get("intent_cluster_similarity")
 
-    # 6a. First match new intents against EXISTING clusters in the DB (same role).
+    # 6a. First match new intents against EXISTING clusters in the DB (same brand).
     #     This prevents micro-cluster fragmentation across runs.
-    existing = await db.fetch_clusters_with_centroids(role_id=role_id)
+    existing = await db.fetch_clusters_with_centroids(brand_id=brand_id)
     leftover_intents: list[RawIntent] = []
     leftover_embeddings: list[list[float]] = []
     matched_per_cluster: dict[int, list[tuple[RawIntent, list[float]]]] = {}
@@ -310,7 +310,7 @@ async def process_intents(
                 cluster_id=cluster_id,
                 is_pillar=False,
                 batch_id=batch_id,
-                role_id=role_id,
+                brand_id=brand_id,
             )
             matched_total += 1
         await db.update_cluster_centroid(cluster_id, centroid.tolist(), existing_count)
@@ -354,7 +354,7 @@ async def process_intents(
             centroid_embedding=cl["centroid"].tolist(),
             intent_count=len(cl["intents"]),
             priority_score=cluster_priority,
-            role_id=role_id,
+            brand_id=brand_id,
         )
 
         intent_ids: list[int] = []
@@ -370,7 +370,7 @@ async def process_intents(
                 cluster_id=cluster_id,
                 is_pillar=(j == pillar_idx),
                 batch_id=batch_id,
-                role_id=role_id,
+                brand_id=brand_id,
             )
             intent_ids.append(intent_id)
 

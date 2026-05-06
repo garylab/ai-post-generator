@@ -220,7 +220,7 @@
 
 {% macro social_card(platform_key, text) %}
 {% set ps = platform_styles.get(platform_key, {'name': platform_key|capitalize, 'color': 'bg-slate-700', 'limit': None, 'icon': '#'}) %}
-<div class="bg-panel border border-border rounded-lg overflow-hidden">
+<div class="bg-panel border border-border rounded-lg overflow-x-auto">
   <div class="flex items-center gap-3 px-4 py-2 border-b border-border bg-slate-900/40">
     <span class="w-7 h-7 rounded-full {{ ps.color }} flex items-center justify-center text-white text-xs font-bold">{{ ps.icon }}</span>
     <span class="font-medium">{{ ps.name }}</span>
@@ -270,7 +270,7 @@
 {% if active_tab == 'publishes' %}
 <section>
   {% if publishes %}
-  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <div class="bg-panel border border-border rounded-lg overflow-x-auto">
     <table class="w-full">
       <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
         <tr>

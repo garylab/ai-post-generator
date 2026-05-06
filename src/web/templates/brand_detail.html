@@ -1,26 +1,26 @@
 {% extends "base.html" %}
-{% set active = 'roles' %}
+{% set active = 'brands' %}
 {% from "base.html" import modal %}
-{% block page_title %}Role · {{ role.name }}{% endblock %}
+{% block page_title %}Brand · {{ brand.name }}{% endblock %}
 {% block content %}
 {% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
 {% set sec = "bg-panel border border-border rounded-lg p-5" %}
 {% set btn_primary = "bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5" %}
 
-<p><a class="text-sky-400 hover:underline" href="/dashboard/roles">← Back to roles</a></p>
+<p><a class="text-sky-400 hover:underline" href="/dashboard/brands">← Back to brands</a></p>
 
 {# ─── Header (always visible) ────────── #}
 <div class="flex items-center justify-between">
-  <h2 class="text-xl font-semibold">{{ role.name }}
-    {% if role.enabled %}
+  <h2 class="text-xl font-semibold">{{ brand.name }}
+    {% if brand.enabled %}
     <span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-900/40 text-emerald-300 align-middle">enabled</span>
     {% else %}
     <span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-700/40 text-zinc-300 align-middle">disabled</span>
     {% endif %}
   </h2>
   <form method="post" action="/dashboard/run/mine">
-    <input type="hidden" name="role_id" value="{{ role.id }}">
-    <button class="{{ btn_primary }}">Mine intents for this role</button>
+    <input type="hidden" name="brand_id" value="{{ brand.id }}">
+    <button class="{{ btn_primary }}">Mine intents for this brand</button>
   </form>
 </div>
 
@@ -30,39 +30,39 @@
   {% set tab_off = "border-transparent text-muted hover:text-white" %}
   {% set tab_on = "border-sky-500 text-white font-medium" %}
   {% set tabs = [
-    ('overall', 'Overall'),
     ('keywords', 'Keywords'),
     ('social-accounts', 'Social Accounts'),
     ('notifications', 'Notifications'),
+    ('settings', 'Settings'),
   ] %}
   {% for key, label in tabs %}
-  <a href="/dashboard/roles/{{ role.id }}/{{ key }}"
+  <a href="/dashboard/brands/{{ brand.id }}/{{ key }}"
      class="{{ tab_base }} {% if active_tab == key %}{{ tab_on }}{% else %}{{ tab_off }}{% endif %}">{{ label }}</a>
   {% endfor %}
 </nav>
 
 {# ─── Overall ──────────────────────── #}
-{% if active_tab == 'overall' %}
+{% if active_tab == 'settings' %}
 <section class="{{ sec }} space-y-4">
   <div class="flex items-center justify-between">
-    <h3 class="text-base font-semibold">Role settings</h3>
-    <form method="post" action="/dashboard/roles/{{ role.id }}/delete"
-          onsubmit="return confirm('Delete role &quot;{{ role.name }}&quot; and all associated data?');">
-      <button class="text-rose-400 hover:underline text-sm">Delete role</button>
+    <h3 class="text-base font-semibold">Brand settings</h3>
+    <form method="post" action="/dashboard/brands/{{ brand.id }}/delete"
+          onsubmit="return confirm('Delete brand &quot;{{ brand.name }}&quot; and all associated data?');">
+      <button class="text-rose-400 hover:underline text-sm">Delete brand</button>
     </form>
   </div>
-  <form method="post" action="/dashboard/roles/{{ role.id }}/update" class="space-y-4">
+  <form method="post" action="/dashboard/brands/{{ brand.id }}/update" class="space-y-4">
     <label class="block">
       <span class="text-xs text-muted">Name</span>
-      <input name="name" value="{{ role.name }}" required class="{{ inp }} w-full mt-1">
+      <input name="name" value="{{ brand.name }}" required class="{{ inp }} w-full mt-1">
     </label>
     <label class="block">
       <span class="text-xs text-muted">Description</span>
-      <input name="description" value="{{ role.description }}" class="{{ inp }} w-full mt-1">
+      <input name="description" value="{{ brand.description }}" class="{{ inp }} w-full mt-1">
     </label>
     <label class="flex items-center gap-2">
-      <input type="checkbox" name="enabled" {% if role.enabled %}checked{% endif %}>
-      <span class="text-sm">Enabled (the pipeline mines and publishes for this role)</span>
+      <input type="checkbox" name="enabled" {% if brand.enabled %}checked{% endif %}>
+      <span class="text-sm">Enabled (the pipeline mines and publishes for this brand)</span>
     </label>
     <button class="{{ btn_primary }}">Save changes</button>
   </form>
@@ -78,20 +78,20 @@
       When disabled, drafts are auto-approved and published.
     </p>
   </div>
-  <form method="post" action="/dashboard/roles/{{ role.id }}/notifications/update" class="space-y-3">
+  <form method="post" action="/dashboard/brands/{{ brand.id }}/notifications/update" class="space-y-3">
     <label class="flex items-center gap-2">
-      <input type="checkbox" name="telegram_enabled" {% if role.telegram_enabled %}checked{% endif %}>
+      <input type="checkbox" name="telegram_enabled" {% if brand.telegram_enabled %}checked{% endif %}>
       <span class="text-sm">Send approval requests via Telegram</span>
     </label>
     <label class="block">
       <span class="text-xs text-muted">Bot token</span>
-      <input name="telegram_bot_token" value="{{ role.telegram_bot_token }}"
+      <input name="telegram_bot_token" value="{{ brand.telegram_bot_token }}"
              placeholder="123456789:ABCDEFG..."
              class="{{ inp }} w-full mt-1 font-mono text-xs">
     </label>
     <label class="block">
       <span class="text-xs text-muted">Chat ID</span>
-      <input name="telegram_chat_id" value="{{ role.telegram_chat_id }}"
+      <input name="telegram_chat_id" value="{{ brand.telegram_chat_id }}"
              placeholder="-100123456789 or 123456789"
              class="{{ inp }} w-full mt-1 font-mono text-xs">
     </label>
@@ -130,7 +130,7 @@
         {% endif %}
         <span class="ml-auto text-xs text-muted">id: {{ acc.id }}</span>
       </summary>
-      <form method="post" action="/dashboard/roles/{{ role.id }}/accounts/{{ acc.id }}/update" class="mt-4 space-y-3">
+      <form method="post" action="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/update" class="mt-4 space-y-3">
         <input type="hidden" name="platform" value="{{ acc.platform }}">
         <label class="block">
           <span class="text-xs text-muted">Display name</span>
@@ -149,11 +149,11 @@
         </label>
         <div class="flex gap-2">
           <button type="submit" class="{{ btn_primary }}">Save</button>
-          <button type="submit" formaction="/dashboard/roles/{{ role.id }}/accounts/{{ acc.id }}/toggle"
+          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/toggle"
                   formmethod="post" class="text-sky-400 hover:underline">
             {{ 'Disable' if acc.enabled else 'Enable' }}
           </button>
-          <button type="submit" formaction="/dashboard/roles/{{ role.id }}/accounts/{{ acc.id }}/delete"
+          <button type="submit" formaction="/dashboard/brands/{{ brand.id }}/accounts/{{ acc.id }}/delete"
                   formmethod="post" class="text-rose-400 hover:underline ml-auto"
                   onclick="return confirm('Delete account &quot;{{ acc.platform }} / {{ acc.display_name }}&quot;?');">
             Delete
@@ -168,7 +168,7 @@
 </section>
 
 {% call modal('modal-add-account', 'Add social account') %}
-<form method="post" action="/dashboard/roles/{{ role.id }}/accounts/add" class="space-y-3">
+<form method="post" action="/dashboard/brands/{{ brand.id }}/accounts/add" class="space-y-3">
   <label class="block">
     <span class="text-xs text-muted">Platform *</span>
     <select name="platform" required class="{{ inp }} w-full mt-1"
@@ -206,12 +206,12 @@
   <div class="flex items-center justify-between">
     <div>
       <h3 class="text-base font-semibold">Keywords <span class="text-muted font-normal">({{ keywords|length }})</span></h3>
-      <p class="text-muted text-xs mt-1">Seed keywords used to mine intents for this role.</p>
+      <p class="text-muted text-xs mt-1">Seed keywords used to mine intents for this brand.</p>
     </div>
     <button class="{{ btn_primary }}" onclick="openModal('modal-add-keyword')">+ Add keyword</button>
   </div>
 
-  <div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <div class="bg-panel border border-border rounded-lg overflow-x-auto">
     <table class="w-full">
       <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
         <tr>
@@ -252,10 +252,10 @@
           </td>
           <td class="px-3 py-2 text-muted">{{ k.created_at.strftime('%Y-%m-%d %H:%M') if k.created_at else '' }}</td>
           <td class="px-3 py-2 text-right">
-            <form method="post" action="/dashboard/roles/{{ role.id }}/keywords/{{ k.id }}/toggle" class="inline">
+            <form method="post" action="/dashboard/brands/{{ brand.id }}/keywords/{{ k.id }}/toggle" class="inline">
               <button class="text-sky-400 hover:underline mr-3">{{ 'Disable' if k.enabled else 'Enable' }}</button>
             </form>
-            <form method="post" action="/dashboard/roles/{{ role.id }}/keywords/{{ k.id }}/delete" class="inline"
+            <form method="post" action="/dashboard/brands/{{ brand.id }}/keywords/{{ k.id }}/delete" class="inline"
                   onsubmit="return confirm('Delete keyword &quot;{{ k.keyword }}&quot;?');">
               <button class="text-rose-400 hover:underline">Delete</button>
             </form>
@@ -270,7 +270,7 @@
 </section>
 
 {% call modal('modal-add-keyword', 'Add keyword') %}
-<form method="post" action="/dashboard/roles/{{ role.id }}/keywords/add" class="space-y-3">
+<form method="post" action="/dashboard/brands/{{ brand.id }}/keywords/add" class="space-y-3">
   <label class="block">
     <span class="text-xs text-muted">Keyword *</span>
     <input type="text" name="keyword" required placeholder="e.g. AI interview"

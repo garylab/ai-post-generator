@@ -9,31 +9,31 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 
 from src.storage.database import (
-    delete_role,
-    delete_role_account,
+    delete_brand,
+    delete_brand_account,
     delete_seed_keyword,
     delete_setting,
     delete_user,
     fetch_content,
     fetch_prompts,
-    fetch_role,
-    fetch_role_accounts,
-    fetch_roles,
+    fetch_brand,
+    fetch_brand_accounts,
+    fetch_brands,
     fetch_seed_keywords,
     fetch_settings,
     fetch_user,
     fetch_user_by_email,
     fetch_users,
     get_session,
-    insert_role,
-    insert_role_account,
+    insert_brand,
+    insert_brand_account,
     insert_seed_keyword,
     insert_user,
-    toggle_role_account,
+    toggle_brand_account,
     toggle_seed_keyword,
     update_prompt_body,
-    update_role,
-    update_role_account,
+    update_brand,
+    update_brand_account,
     update_setting_value,
     update_user,
     upsert_setting,
@@ -393,8 +393,8 @@ PLATFORM_FIELDS = {
 }
 
 
-@router.get("/dashboard/roles", response_class=HTMLResponse)
-async def roles_list(
+@router.get("/dashboard/brands", response_class=HTMLResponse)
+async def brands_list(
     request: Request,
     page: int = 1,
     per_page: int = 50,
@@ -409,27 +409,27 @@ async def roles_list(
     order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "created_at", "asc")
 
     page, per_page, offset = _page_params(page, per_page)
-    total = await _count("SELECT COUNT(*) FROM roles")
+    total = await _count("SELECT COUNT(*) FROM brands")
     rows = await _fetch(
         f"""
         SELECT id, slug, name, description, enabled, created_at
-        FROM roles ORDER BY {order_by} LIMIT :lim OFFSET :off
+        FROM brands ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {"lim": per_page, "off": offset},
     )
     counts = await _fetch(
         """
         SELECT r.id,
-               (SELECT COUNT(*) FROM seed_keywords WHERE role_id = r.id) AS keyword_count,
-               (SELECT COUNT(*) FROM role_social_accounts WHERE role_id = r.id) AS account_count,
-               (SELECT COUNT(*) FROM content WHERE role_id = r.id) AS content_count
-        FROM roles r
+               (SELECT COUNT(*) FROM seed_keywords WHERE brand_id = r.id) AS keyword_count,
+               (SELECT COUNT(*) FROM brand_social_accounts WHERE brand_id = r.id) AS account_count,
+               (SELECT COUNT(*) FROM content WHERE brand_id = r.id) AS content_count
+        FROM brands r
         """
     )
     counts_by_id = {c["id"]: c for c in counts}
     full_q = f"sort={sort_key}&dir={sort_dir}"
     return templates.TemplateResponse(
-        request, "roles.html",
+        request, "brands.html",
         {
             "rows": rows, "counts": counts_by_id,
             "page": page, "per_page": per_page, "total": total,
@@ -439,41 +439,47 @@ async def roles_list(
     )
 
 
-@router.post("/dashboard/roles/add")
-async def roles_add(name: str = Form(...), description: str = Form("")):
-    rid = await insert_role(name.strip(), description.strip())
-    return RedirectResponse(f"/dashboard/roles/{rid}", status_code=303)
+@router.post("/dashboard/brands/add")
+async def brands_add(name: str = Form(...), description: str = Form("")):
+    rid = await insert_brand(name.strip(), description.strip())
+    return RedirectResponse(f"/dashboard/brands/{rid}", status_code=303)
 
 
-@router.get("/dashboard/roles/{role_id}", response_class=HTMLResponse)
-async def role_detail_root(role_id: int):
-    return RedirectResponse(f"/dashboard/roles/{role_id}/overall", status_code=303)
+@router.get("/dashboard/brands/{brand_id}", response_class=HTMLResponse)
+async def brand_detail_root(brand_id: int):
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
-async def _role_or_404(role_id: int) -> dict:
-    role = await fetch_role(role_id)
-    if not role:
-        raise HTTPException(404, "Role not found")
-    return role
+@router.get("/dashboard/brands/{brand_id}/overall", response_class=HTMLResponse)
+async def brand_detail_overall_legacy(brand_id: int):
+    # Legacy alias — overall was renamed to settings.
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/settings", status_code=303)
 
 
-@router.get("/dashboard/roles/{role_id}/overall", response_class=HTMLResponse)
-async def role_tab_overall(request: Request, role_id: int):
-    role = await _role_or_404(role_id)
+async def _brand_or_404(brand_id: int) -> dict:
+    brand = await fetch_brand(brand_id)
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+    return brand
+
+
+@router.get("/dashboard/brands/{brand_id}/settings", response_class=HTMLResponse)
+async def brand_tab_settings(request: Request, brand_id: int):
+    brand = await _brand_or_404(brand_id)
     return templates.TemplateResponse(
-        request, "role_detail.html",
-        {"role": role, "active_tab": "overall"},
+        request, "brand_detail.html",
+        {"brand": brand, "active_tab": "settings"},
     )
 
 
-@router.get("/dashboard/roles/{role_id}/social-accounts", response_class=HTMLResponse)
-async def role_tab_accounts(request: Request, role_id: int):
-    role = await _role_or_404(role_id)
-    accounts = await fetch_role_accounts(role_id)
+@router.get("/dashboard/brands/{brand_id}/social-accounts", response_class=HTMLResponse)
+async def brand_tab_accounts(request: Request, brand_id: int):
+    brand = await _brand_or_404(brand_id)
+    accounts = await fetch_brand_accounts(brand_id)
     return templates.TemplateResponse(
-        request, "role_detail.html",
+        request, "brand_detail.html",
         {
-            "role": role,
+            "brand": brand,
             "active_tab": "social-accounts",
             "accounts": accounts,
             "platform_fields": PLATFORM_FIELDS,
@@ -481,134 +487,134 @@ async def role_tab_accounts(request: Request, role_id: int):
     )
 
 
-@router.get("/dashboard/roles/{role_id}/keywords", response_class=HTMLResponse)
-async def role_tab_keywords(request: Request, role_id: int):
-    role = await _role_or_404(role_id)
-    keywords = await fetch_seed_keywords(role_id=role_id)
+@router.get("/dashboard/brands/{brand_id}/keywords", response_class=HTMLResponse)
+async def brand_tab_keywords(request: Request, brand_id: int):
+    brand = await _brand_or_404(brand_id)
+    keywords = await fetch_seed_keywords(brand_id=brand_id)
     return templates.TemplateResponse(
-        request, "role_detail.html",
-        {"role": role, "active_tab": "keywords", "keywords": keywords},
+        request, "brand_detail.html",
+        {"brand": brand, "active_tab": "keywords", "keywords": keywords},
     )
 
 
-@router.get("/dashboard/roles/{role_id}/notifications", response_class=HTMLResponse)
-async def role_tab_notifications(request: Request, role_id: int):
-    role = await _role_or_404(role_id)
+@router.get("/dashboard/brands/{brand_id}/notifications", response_class=HTMLResponse)
+async def brand_tab_notifications(request: Request, brand_id: int):
+    brand = await _brand_or_404(brand_id)
     return templates.TemplateResponse(
-        request, "role_detail.html",
-        {"role": role, "active_tab": "notifications"},
+        request, "brand_detail.html",
+        {"brand": brand, "active_tab": "notifications"},
     )
 
 
-@router.post("/dashboard/roles/{role_id}/update")
-async def roles_update(
-    role_id: int,
+@router.post("/dashboard/brands/{brand_id}/update")
+async def brands_update(
+    brand_id: int,
     name: str = Form(...),
     description: str = Form(""),
     enabled: str = Form(None),
 ):
-    await update_role(
-        role_id,
+    await update_brand(
+        brand_id,
         name=name.strip(),
         description=description.strip(),
         enabled=bool(enabled),
     )
-    return RedirectResponse(f"/dashboard/roles/{role_id}/overall", status_code=303)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/settings", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/notifications/update")
-async def roles_notifications_update(
-    role_id: int,
+@router.post("/dashboard/brands/{brand_id}/notifications/update")
+async def brands_notifications_update(
+    brand_id: int,
     telegram_bot_token: str = Form(""),
     telegram_chat_id: str = Form(""),
     telegram_enabled: str = Form(None),
 ):
-    await update_role(
-        role_id,
+    await update_brand(
+        brand_id,
         telegram_bot_token=telegram_bot_token.strip(),
         telegram_chat_id=telegram_chat_id.strip(),
         telegram_enabled=bool(telegram_enabled),
     )
-    return RedirectResponse(f"/dashboard/roles/{role_id}/notifications", status_code=303)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/notifications", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/delete")
-async def roles_delete(role_id: int):
-    await delete_role(role_id)
-    return RedirectResponse("/dashboard/roles", status_code=303)
+@router.post("/dashboard/brands/{brand_id}/delete")
+async def brands_delete(brand_id: int):
+    await delete_brand(brand_id)
+    return RedirectResponse("/dashboard/brands", status_code=303)
 
 
-# ── Role keywords (scoped to a role) ───────────────────────────
+# ── Brand keywords (scoped to a brand) ───────────────────────────
 
-@router.post("/dashboard/roles/{role_id}/keywords/add")
-async def role_keyword_add(role_id: int, keyword: str = Form(...)):
+@router.post("/dashboard/brands/{brand_id}/keywords/add")
+async def brand_keyword_add(brand_id: int, keyword: str = Form(...)):
     kw = keyword.strip()
     if kw:
-        await insert_seed_keyword(role_id, kw)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/keywords", status_code=303)
+        await insert_seed_keyword(brand_id, kw)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/keywords/{keyword_id}/toggle")
-async def role_keyword_toggle(role_id: int, keyword_id: int):
+@router.post("/dashboard/brands/{brand_id}/keywords/{keyword_id}/toggle")
+async def brand_keyword_toggle(brand_id: int, keyword_id: int):
     await toggle_seed_keyword(keyword_id)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/keywords", status_code=303)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/keywords/{keyword_id}/delete")
-async def role_keyword_delete(role_id: int, keyword_id: int):
+@router.post("/dashboard/brands/{brand_id}/keywords/{keyword_id}/delete")
+async def brand_keyword_delete(brand_id: int, keyword_id: int):
     await delete_seed_keyword(keyword_id)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/keywords", status_code=303)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/keywords", status_code=303)
 
 
-# ── Role social accounts ──────────────────────────────────────
+# ── Brand social accounts ──────────────────────────────────────
 
-@router.post("/dashboard/roles/{role_id}/accounts/add")
-async def role_account_add(role_id: int, request: Request):
+@router.post("/dashboard/brands/{brand_id}/accounts/add")
+async def brand_account_add(brand_id: int, request: Request):
     form = await request.form()
     platform = (form.get("platform") or "").strip()
     display_name = (form.get("display_name") or "primary").strip() or "primary"
     if platform not in PLATFORM_FIELDS:
         raise HTTPException(400, f"Unknown platform: {platform}")
     creds = {key: (form.get(f"cred_{key}") or "").strip() for key, _ in PLATFORM_FIELDS[platform]}
-    await insert_role_account(role_id, platform, display_name, creds)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/social-accounts", status_code=303)
+    await insert_brand_account(brand_id, platform, display_name, creds)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/accounts/{account_id}/update")
-async def role_account_update(role_id: int, account_id: int, request: Request):
+@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/update")
+async def brand_account_update(brand_id: int, account_id: int, request: Request):
     form = await request.form()
     platform = (form.get("platform") or "").strip()
     if platform not in PLATFORM_FIELDS:
         raise HTTPException(400, f"Unknown platform: {platform}")
     creds = {key: (form.get(f"cred_{key}") or "").strip() for key, _ in PLATFORM_FIELDS[platform]}
-    await update_role_account(
+    await update_brand_account(
         account_id,
         display_name=(form.get("display_name") or "primary").strip() or "primary",
         credentials=creds,
         enabled=bool(form.get("enabled")),
     )
-    return RedirectResponse(f"/dashboard/roles/{role_id}/social-accounts", status_code=303)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/accounts/{account_id}/toggle")
-async def role_account_toggle(role_id: int, account_id: int):
-    await toggle_role_account(account_id)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/social-accounts", status_code=303)
+@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/toggle")
+async def brand_account_toggle(brand_id: int, account_id: int):
+    await toggle_brand_account(account_id)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
-@router.post("/dashboard/roles/{role_id}/accounts/{account_id}/delete")
-async def role_account_delete(role_id: int, account_id: int):
-    await delete_role_account(account_id)
-    return RedirectResponse(f"/dashboard/roles/{role_id}/social-accounts", status_code=303)
+@router.post("/dashboard/brands/{brand_id}/accounts/{account_id}/delete")
+async def brand_account_delete(brand_id: int, account_id: int):
+    await delete_brand_account(account_id)
+    return RedirectResponse(f"/dashboard/brands/{brand_id}/social-accounts", status_code=303)
 
 
 # ── Pipeline triggers (background) ─────────────────────────────
 
 @router.post("/dashboard/run/mine")
-async def run_mine(role_id: int | None = Form(None)):
+async def run_mine(brand_id: int | None = Form(None)):
     from src.scheduler.jobs import intent_mining_pipeline
-    asyncio.create_task(intent_mining_pipeline(role_id=role_id))
-    target = f"/dashboard/roles/{role_id}/overall" if role_id else "/"
+    asyncio.create_task(intent_mining_pipeline(brand_id=brand_id))
+    target = f"/dashboard/brands/{brand_id}/keywords" if brand_id else "/"
     return RedirectResponse(target, status_code=303)
 
 
@@ -728,7 +734,7 @@ async def users_list(
 ):
     sort_cols = {
         "email": "email",
-        "role": "role",
+        "brand": "brand",
         "created_at": "created_at",
         "updated_at": "updated_at",
     }
@@ -773,7 +779,7 @@ async def users_update(
 ):
     if role not in ("admin", "editor"):
         raise HTTPException(400, "Invalid role")
-    fields: dict = {"email": email.strip().lower(), "role": role}
+    fields: dict = {"email": email.strip().lower(), "brand": brand}
     if password:
         if len(password) < 8:
             raise HTTPException(400, "Password must be at least 8 characters")

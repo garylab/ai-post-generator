@@ -98,12 +98,41 @@
   </script>
 </head>
 <body class="bg-bg text-slate-100 font-sans text-sm antialiased">
+  {# ─── Mobile top bar (visible < md) ──────── #}
+  <header class="md:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 bg-panel border-b border-border">
+    <button id="sidebar-open" class="p-1.5 -ml-1.5 rounded hover:bg-slate-800/50" aria-label="Open menu">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+        <path d="M3 6h18M3 12h18M3 18h18"/>
+      </svg>
+    </button>
+    <h1 class="text-base font-semibold tracking-tight">AI Post Generator</h1>
+  </header>
+
+  {# ─── Backdrop (mobile only, when sidebar is open) ─── #}
+  <div id="sidebar-backdrop" class="hidden fixed inset-0 z-40 bg-black/60 md:hidden"
+       onclick="closeSidebar()"></div>
+
   <div class="flex min-h-screen">
-    {# ─── Sidebar ─────────────────────────── #}
-    <aside class="w-60 shrink-0 bg-panel border-r border-border flex flex-col sticky top-0 h-screen">
-      <div class="px-5 py-4 border-b border-border">
-        <h1 class="text-base font-semibold tracking-tight">AI Post Generator</h1>
-        <p class="text-[11px] text-muted mt-0.5">Content growth engine</p>
+    {# ─── Sidebar
+         - Desktop (md+): sticky column inside the flex row.
+         - Mobile (<md): off-canvas drawer toggled by the hamburger. #}
+    <aside id="sidebar"
+           class="w-64 shrink-0 bg-panel border-r border-border flex flex-col
+                  fixed md:sticky inset-y-0 left-0 z-50 md:z-auto
+                  -translate-x-full md:translate-x-0
+                  transition-transform duration-200
+                  top-0 h-screen">
+      <div class="px-5 py-4 border-b border-border flex items-start justify-between">
+        <div>
+          <h1 class="text-base font-semibold tracking-tight">AI Post Generator</h1>
+          <p class="text-[11px] text-muted mt-0.5">Content growth engine</p>
+        </div>
+        <button class="md:hidden text-muted hover:text-white p-1 -mr-1"
+                onclick="closeSidebar()" aria-label="Close menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+            <path d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
       </div>
 
       <nav class="flex-1 p-3 space-y-5">
@@ -123,7 +152,7 @@
             ('index', '/', 'Overview', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'),
           ]),
           ('Setup', [
-            ('roles', '/dashboard/roles', 'Roles', 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z'),
+            ('brands', '/dashboard/brands', 'Brands', 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z'),
           ]),
           ('Pipeline', [
             ('intents', '/dashboard/intents', 'Intents', 'M13 10V3L4 14h7v7l9-11h-7z'),
@@ -163,7 +192,7 @@
     </aside>
 
     {# ─── Main content ───────────────────────── #}
-    <main class="flex-1 min-w-0 px-6 py-6 space-y-8 overflow-x-auto">
+    <main class="flex-1 min-w-0 px-4 sm:px-6 py-4 sm:py-6 space-y-6 sm:space-y-8 overflow-x-auto">
       {% block content %}{% endblock %}
     </main>
   </div>
@@ -184,6 +213,23 @@
   {% endmacro %}
 
   <script>
+    // ── Mobile sidebar drawer ────────────────────────
+    function openSidebar() {
+      document.getElementById('sidebar')?.classList.remove('-translate-x-full');
+      document.getElementById('sidebar-backdrop')?.classList.remove('hidden');
+    }
+    function closeSidebar() {
+      document.getElementById('sidebar')?.classList.add('-translate-x-full');
+      document.getElementById('sidebar-backdrop')?.classList.add('hidden');
+    }
+    document.getElementById('sidebar-open')?.addEventListener('click', openSidebar);
+    // Close drawer when a nav link is clicked on mobile
+    document.querySelectorAll('#sidebar nav a').forEach(a => {
+      a.addEventListener('click', () => {
+        if (window.matchMedia('(max-width: 767px)').matches) closeSidebar();
+      });
+    });
+
     function openModal(id) {
       const el = document.getElementById(id);
       if (el) { el.classList.remove('hidden'); el.classList.add('flex'); }

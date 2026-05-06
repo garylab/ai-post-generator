@@ -4,32 +4,32 @@ import json
 
 import httpx
 
-from src.storage.models import ContentPackage, Role
+from src.storage.models import Brand, ContentPackage
 from loguru import logger as log
 
 
 _BASE = "https://api.telegram.org/bot{token}"
 
 
-async def send_for_approval(pkg: ContentPackage, role: Role | None = None) -> bool:
-    """Send a Telegram message with inline Approve/Reject buttons via the role's bot.
+async def send_for_approval(pkg: ContentPackage, brand: Brand | None = None) -> bool:
+    """Send a Telegram message with inline Approve/Reject buttons via the brand's bot.
 
     Returns True if sent successfully, False if not configured / failed.
     """
-    if role is None or not role.telegram_enabled:
-        log.info("Telegram not enabled for this role — skipping approval send")
+    if brand is None or not brand.telegram_enabled:
+        log.info("Telegram not enabled for this brand — skipping approval send")
         return False
-    if not role.telegram_bot_token or not role.telegram_chat_id:
+    if not brand.telegram_bot_token or not brand.telegram_chat_id:
         log.warning(
-            "Role '{}' has telegram_enabled=true but bot_token/chat_id missing",
-            role.slug,
+            "Brand '{}' has telegram_enabled=true but bot_token/chat_id missing",
+            brand.slug,
         )
         return False
 
     preview = pkg.article_html[:400].replace("<", "&lt;").replace(">", "&gt;")
     text = (
         f"<b>New Article for Review</b>\n\n"
-        f"<b>Role:</b> {role.name}\n"
+        f"<b>Brand:</b> {brand.name}\n"
         f"<b>Title:</b> {pkg.article_title}\n"
         f"<b>Score:</b> {pkg.topic.score if pkg.topic else 'N/A'}\n"
         f"<b>Cluster:</b> {pkg.topic.cluster if pkg.topic else 'N/A'}\n"
@@ -47,9 +47,9 @@ async def send_for_approval(pkg: ContentPackage, role: Role | None = None) -> bo
         ]]
     }
 
-    url = _BASE.format(token=role.telegram_bot_token) + "/sendMessage"
+    url = _BASE.format(token=brand.telegram_bot_token) + "/sendMessage"
     payload = {
-        "chat_id": role.telegram_chat_id,
+        "chat_id": brand.telegram_chat_id,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": json.dumps(keyboard),
@@ -58,8 +58,8 @@ async def send_for_approval(pkg: ContentPackage, role: Role | None = None) -> bo
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(url, json=payload)
         if resp.status_code != 200:
-            log.error("Telegram send failed for role '{}': {}", role.slug, resp.text)
+            log.error("Telegram send failed for brand '{}': {}", brand.slug, resp.text)
             return False
-        log.info("Sent approval request for '{}' to Telegram (role={})",
-                 pkg.article_title, role.slug)
+        log.info("Sent approval request for '{}' to Telegram (brand={})",
+                 pkg.article_title, brand.slug)
         return True

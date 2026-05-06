@@ -397,9 +397,9 @@ GROUP BY c.content_id, c.title, c.cluster, c.score, c.iteration_count, c.created
 HAVING AVG(p.ctr) < 2;
 
 -- ============================================================
--- ROLES (each role = a brand/persona with its own keywords + social accounts)
+-- BRANDS (each brand has its own keywords + social accounts)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS roles (
+CREATE TABLE IF NOT EXISTS brands (
   id                 SERIAL PRIMARY KEY,
   slug               TEXT UNIQUE NOT NULL,
   name               TEXT NOT NULL,
@@ -411,32 +411,32 @@ CREATE TABLE IF NOT EXISTS roles (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS role_social_accounts (
+CREATE TABLE IF NOT EXISTS brand_social_accounts (
   id            SERIAL PRIMARY KEY,
-  role_id       INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  brand_id       INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
   platform      TEXT NOT NULL,
   display_name  TEXT NOT NULL DEFAULT '',
   credentials   JSONB NOT NULL DEFAULT '{}'::jsonb,
   enabled       BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (role_id, platform, display_name)
+  UNIQUE (brand_id, platform, display_name)
 );
-CREATE INDEX IF NOT EXISTS idx_role_social_role ON role_social_accounts(role_id);
+CREATE INDEX IF NOT EXISTS idx_brand_social_brand ON brand_social_accounts(brand_id);
 
 -- ============================================================
--- SEED KEYWORDS (manageable from dashboard, scoped per role)
+-- SEED KEYWORDS (manageable from dashboard, scoped per brand)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS seed_keywords (
   id SERIAL PRIMARY KEY,
-  role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
+  brand_id INTEGER REFERENCES brands(id) ON DELETE CASCADE,
   keyword TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
   score NUMERIC(8, 2),
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (role_id, keyword)
+  UNIQUE (brand_id, keyword)
 );
-CREATE INDEX IF NOT EXISTS idx_seed_kw_role ON seed_keywords(role_id);
+CREATE INDEX IF NOT EXISTS idx_seed_kw_brand ON seed_keywords(brand_id);
 CREATE INDEX IF NOT EXISTS idx_seed_kw_source ON seed_keywords(source);
 
 -- ============================================================
@@ -472,13 +472,13 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
--- Per-role tagging on existing pipeline tables
-ALTER TABLE intents ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
-ALTER TABLE intent_clusters ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
-ALTER TABLE content ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
-CREATE INDEX IF NOT EXISTS idx_intents_role ON intents(role_id);
-CREATE INDEX IF NOT EXISTS idx_clusters_role ON intent_clusters(role_id);
-CREATE INDEX IF NOT EXISTS idx_content_role ON content(role_id);
+-- Per-brand tagging on existing pipeline tables
+ALTER TABLE intents ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL;
+ALTER TABLE intent_clusters ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL;
+ALTER TABLE content ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_intents_brand ON intents(brand_id);
+CREATE INDEX IF NOT EXISTS idx_clusters_brand ON intent_clusters(brand_id);
+CREATE INDEX IF NOT EXISTS idx_content_brand ON content(brand_id);
 
 -- ============================================================
 -- Numeric / datetime indexes for dashboard sorting & filtering
@@ -496,14 +496,14 @@ CREATE INDEX IF NOT EXISTS idx_iclusters_created_at ON intent_clusters(created_a
 CREATE INDEX IF NOT EXISTS idx_perf_clicks ON performance(clicks DESC);
 CREATE INDEX IF NOT EXISTS idx_perf_signups ON performance(signups DESC);
 
--- roles / users
-CREATE INDEX IF NOT EXISTS idx_roles_created_at ON roles(created_at DESC);
+-- brands / users
+CREATE INDEX IF NOT EXISTS idx_brands_created_at ON brands(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updated_at DESC);
 
--- seed_keywords / role_social_accounts
+-- seed_keywords / brand_social_accounts
 CREATE INDEX IF NOT EXISTS idx_seed_kw_created_at ON seed_keywords(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_rsa_created_at ON role_social_accounts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bsa_created_at ON brand_social_accounts(created_at DESC);
 
 -- ab_results
 CREATE INDEX IF NOT EXISTS idx_ab_confidence ON ab_results(confidence DESC);

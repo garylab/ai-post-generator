@@ -119,8 +119,8 @@ class IntentClusterRow(Base):
     intent_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
     covered_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sa_text("0"))
     priority_score: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False, server_default=sa_text("0"))
-    role_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("roles.id", ondelete="SET NULL"),
+    brand_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("brands.id", ondelete="SET NULL"),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
@@ -145,8 +145,8 @@ class IntentRow(Base):
     cluster_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("intent_clusters.id", ondelete="SET NULL"),
     )
-    role_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("roles.id", ondelete="SET NULL"),
+    brand_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("brands.id", ondelete="SET NULL"),
     )
     content_id: Mapped[str | None] = mapped_column(Text)
     is_pillar: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("FALSE"))
@@ -168,8 +168,8 @@ class ContentRow(Base):
     intent_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("intents.id", ondelete="SET NULL"),
     )
-    role_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("roles.id", ondelete="SET NULL"),
+    brand_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("brands.id", ondelete="SET NULL"),
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     title_embedding = mapped_column(Vector(1536), nullable=True)
@@ -336,8 +336,8 @@ class UserRow(Base):
     )
 
 
-class RoleRow(Base):
-    __tablename__ = "roles"
+class BrandRow(Base):
+    __tablename__ = "brands"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
@@ -352,15 +352,15 @@ class RoleRow(Base):
     )
 
 
-class RoleSocialAccountRow(Base):
-    __tablename__ = "role_social_accounts"
+class BrandSocialAccountRow(Base):
+    __tablename__ = "brand_social_accounts"
     __table_args__ = (
-        UniqueConstraint("role_id", "platform", "display_name", name="uq_role_platform_name"),
+        UniqueConstraint("brand_id", "platform", "display_name", name="uq_brand_platform_name"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    role_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False,
+    brand_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("brands.id", ondelete="CASCADE"), nullable=False,
     )
     platform: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("''"))
@@ -374,12 +374,12 @@ class RoleSocialAccountRow(Base):
 class SeedKeywordRow(Base):
     __tablename__ = "seed_keywords"
     __table_args__ = (
-        UniqueConstraint("role_id", "keyword", name="uq_role_keyword"),
+        UniqueConstraint("brand_id", "keyword", name="uq_brand_keyword"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    role_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("roles.id", ondelete="CASCADE"),
+    brand_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("brands.id", ondelete="CASCADE"),
     )
     keyword: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("'manual'"))
@@ -530,7 +530,7 @@ class User(BaseModel):
     updated_at: datetime
 
 
-class Role(BaseModel):
+class Brand(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -544,11 +544,11 @@ class Role(BaseModel):
     created_at: datetime
 
 
-class RoleSocialAccount(BaseModel):
+class BrandSocialAccount(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    role_id: int
+    brand_id: int
     platform: str
     display_name: str = ""
     credentials: dict = Field(default_factory=dict)
@@ -560,7 +560,7 @@ class SeedKeyword(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    role_id: int | None = None
+    brand_id: int | None = None
     keyword: str
     source: str = "manual"
     score: float | None = None

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set active = 'roles' %}
+{% set active = 'brands' %}
 {% from "base.html" import pill, modal, paginate, sort_header %}
 {% block page_title %}Roles{% endblock %}
 {% block content %}
@@ -9,13 +9,13 @@
 <div class="flex items-center justify-between">
   <div>
     <h2 class="text-lg font-semibold">Roles <span class="text-muted font-normal">({{ total }})</span></h2>
-    <p class="text-muted text-xs mt-1">Each role has its own keywords and social accounts.</p>
+    <p class="text-muted text-xs mt-1">Each brand has its own keywords and social accounts.</p>
   </div>
-  <button class="{{ btn_primary }}" onclick="openModal('modal-add-role')">+ New role</button>
+  <button class="{{ btn_primary }}" onclick="openModal('modal-add-brand')">+ New brand</button>
 </div>
 
-{% call modal('modal-add-role', 'Create role') %}
-<form method="post" action="/dashboard/roles/add" class="space-y-3">
+{% call modal('modal-add-brand', 'Create brand') %}
+<form method="post" action="/dashboard/brands/add" class="space-y-3">
   <label class="block">
     <span class="text-xs text-muted">Name *</span>
     <input name="name" required placeholder="Mockreal" class="{{ inp }} w-full mt-1">
@@ -25,13 +25,13 @@
     <input name="description" class="{{ inp }} w-full mt-1">
   </label>
   <div class="flex justify-end gap-2 pt-2">
-    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-add-role')">Cancel</button>
+    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-add-brand')">Cancel</button>
     <button class="{{ btn_primary }}">Create</button>
   </div>
 </form>
 {% endcall %}
 
-<div class="bg-panel border border-border rounded-lg overflow-hidden">
+<div class="bg-panel border border-border rounded-lg overflow-x-auto">
   <table class="w-full">
     <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
       <tr>
@@ -40,7 +40,7 @@
         <th class="px-3 py-2 text-left font-medium">Keywords</th>
         <th class="px-3 py-2 text-left font-medium">Accounts</th>
         <th class="px-3 py-2 text-left font-medium">Content</th>
-        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/roles', filter_query) }}
+        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/brands', filter_query) }}
         <th class="px-3 py-2 text-right font-medium">Actions</th>
       </tr>
     </thead>
@@ -49,7 +49,7 @@
       {% set c = counts.get(r.id, {}) %}
       <tr class="hover:bg-slate-800/30">
         <td class="px-3 py-2 font-medium">
-          <a class="text-sky-400 hover:underline" href="/dashboard/roles/{{ r.id }}">{{ r.name }}</a>
+          <a class="text-sky-400 hover:underline" href="/dashboard/brands/{{ r.id }}">{{ r.name }}</a>
         </td>
         <td class="px-3 py-2">
           {% if r.enabled %}
@@ -65,7 +65,7 @@
         <td class="px-3 py-2 text-right">
           <form method="post" action="/dashboard/run/mine" class="inline"
                 onsubmit="return confirm('Mine intents for &quot;{{ r.name|replace("'", "\\'") }}&quot;?');">
-            <input type="hidden" name="role_id" value="{{ r.id }}">
+            <input type="hidden" name="brand_id" value="{{ r.id }}">
             <button class="bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-2.5 py-1 text-xs">
               Mine intents
             </button>
@@ -73,10 +73,10 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="px-3 py-6 text-center text-muted">No roles yet. Add one above.</td></tr>
+      <tr><td colspan="7" class="px-3 py-6 text-center text-muted">No brands yet. Add one above.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-{{ paginate(page, per_page, total, "/dashboard/roles", query) }}
+{{ paginate(page, per_page, total, "/dashboard/brands", query) }}
 {% endblock %}
