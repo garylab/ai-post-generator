@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # App
     app_port: int = 8000
-    dashboard_password: str = ""
+    session_secret: str = "change-me-please-set-a-long-random-string"
     pipeline_interval_hours: int = 6
     metrics_hour: int = 3
 

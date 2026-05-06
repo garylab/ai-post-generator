@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -295,6 +295,21 @@ class AbResultRow(Base):
     )
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa_text("'editor'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa_text("NOW()"),
+    )
+
+
 class RoleRow(Base):
     __tablename__ = "roles"
 
@@ -442,3 +457,55 @@ class PerformanceMetrics(BaseModel):
     signups: int = 0
     ctr: float = 0
     conversion_rate: float = 0
+
+
+# =====================================================================
+# Pydantic schemas for dashboard entities (mirror SQLAlchemy ORM rows)
+# =====================================================================
+
+class _ORMConfig:
+    """Marker — children use ConfigDict(from_attributes=True) for ORM hydration."""
+
+
+class User(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    hashed_password: str
+    role: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class Role(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    name: str
+    description: str = ""
+    enabled: bool = True
+    created_at: datetime
+
+
+class RoleSocialAccount(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    role_id: int
+    platform: str
+    display_name: str = ""
+    credentials: dict = Field(default_factory=dict)
+    enabled: bool = True
+    created_at: datetime
+
+
+class SeedKeyword(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    role_id: int | None = None
+    keyword: str
+    enabled: bool = True
+    created_at: datetime

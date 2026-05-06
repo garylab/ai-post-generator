@@ -433,6 +433,19 @@ CREATE TABLE IF NOT EXISTS seed_keywords (
 );
 CREATE INDEX IF NOT EXISTS idx_seed_kw_role ON seed_keywords(role_id);
 
+-- ============================================================
+-- USERS (dashboard auth — admin / editor)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS users (
+  id              SERIAL PRIMARY KEY,
+  email           TEXT UNIQUE NOT NULL,
+  hashed_password TEXT NOT NULL,
+  role            TEXT NOT NULL DEFAULT 'editor' CHECK (role IN ('admin','editor')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
 -- Per-role tagging on existing pipeline tables
 ALTER TABLE intents ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
 ALTER TABLE intent_clusters ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;

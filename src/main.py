@@ -9,17 +9,29 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Header, HTTPException, Request
 
+from starlette.middleware.sessions import SessionMiddleware
+
 from src.approval.webhook_server import router as webhook_router, set_publish_callback
 from src.config import settings
 from src.scheduler.jobs import daily_metrics, main_pipeline, publish_approved
 from src.storage.database import close_db, init_db, ping
 from src.utils.logging import setup_logging
-from src.web.dashboard import router as dashboard_router
+from src.web.auth import install_login_redirect
+from src.web.dashboard import public_router as dashboard_public_router, router as dashboard_router
 from loguru import logger as log
 
 
 app = FastAPI(title="Mockreal Growth Engine", version="1.0.0")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="apg_session",
+    max_age=60 * 60 * 24 * 14,  # 14 days
+    same_site="lax",
+)
+install_login_redirect(app)
 app.include_router(webhook_router)
+app.include_router(dashboard_public_router)
 app.include_router(dashboard_router)
 
 

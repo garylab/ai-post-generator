@@ -18,9 +18,14 @@ from src.storage.models import (
     IntentRow,
     PerformanceRow,
     PublishLogRow,
+    Role,
     RoleRow,
+    RoleSocialAccount,
     RoleSocialAccountRow,
+    SeedKeyword,
     SeedKeywordRow,
+    User,
+    UserRow,
 )
 
 
@@ -487,6 +492,53 @@ async def find_related_published(
 
 # ── Intents & Intent Clusters ─────────────────────────────────
 
+async def fetch_clusters_with_centroids(role_id: int | None = None) -> list[dict]:
+    """Return all clusters (optionally per-role) with their stored centroid embeddings."""
+    where = "WHERE centroid_embedding IS NOT NULL"
+    params: dict = {}
+    if role_id is not None:
+        where += " AND role_id = :rid"
+        params["rid"] = role_id
+    async with get_session() as session:
+        result = await session.execute(
+            text(f"""
+                SELECT id, slug, name, role_id, intent_count, covered_count,
+                       centroid_embedding::text AS centroid_str
+                FROM intent_clusters
+                {where}
+            """),
+            params,
+        )
+        out: list[dict] = []
+        for row in result.mappings().all():
+            d = dict(row)
+            # Parse pgvector text "[0.1,0.2,...]" → list[float]
+            s = d.pop("centroid_str", "")
+            if s and s.startswith("["):
+                d["centroid"] = [float(x) for x in s[1:-1].split(",") if x]
+            else:
+                d["centroid"] = []
+            out.append(d)
+        return out
+
+
+async def update_cluster_centroid(
+    cluster_id: int, centroid: list[float], intent_count: int,
+) -> None:
+    """Replace the cluster's centroid and intent_count after attaching new intents."""
+    async with get_session() as session:
+        await session.execute(
+            update(IntentClusterRow)
+            .where(IntentClusterRow.id == cluster_id)
+            .values(
+                centroid_embedding=centroid,
+                intent_count=intent_count,
+                updated_at=func.now(),
+            )
+        )
+        await session.commit()
+
+
 async def insert_intent_cluster(
     name: str,
     slug: str,
@@ -682,7 +734,9 @@ async def fetch_intent_stats() -> dict:
         return dict(row) if row else {}
 
 
-async def fetch_seed_keywords(role_id: int | None = None, enabled_only: bool = False) -> list[dict]:
+async def fetch_seed_keywords(
+    role_id: int | None = None, enabled_only: bool = False,
+) -> list[SeedKeyword]:
     async with get_session() as session:
         stmt = select(SeedKeywordRow)
         if role_id is not None:
@@ -691,7 +745,7 @@ async def fetch_seed_keywords(role_id: int | None = None, enabled_only: bool = F
             stmt = stmt.where(SeedKeywordRow.enabled.is_(True))
         stmt = stmt.order_by(SeedKeywordRow.created_at.desc())
         result = await session.execute(stmt)
-        return [_to_dict(r) for r in result.scalars().all()]
+        return [SeedKeyword.model_validate(r) for r in result.scalars().all()]
 
 
 async def insert_seed_keyword(role_id: int, keyword: str) -> None:
@@ -724,21 +778,21 @@ async def delete_seed_keyword(keyword_id: int) -> None:
 
 # ── Roles ───────────────────────────────────────────────────────
 
-async def fetch_roles(enabled_only: bool = False) -> list[dict]:
+async def fetch_roles(enabled_only: bool = False) -> list[Role]:
     async with get_session() as session:
         stmt = select(RoleRow)
         if enabled_only:
             stmt = stmt.where(RoleRow.enabled.is_(True))
         stmt = stmt.order_by(RoleRow.created_at.asc())
         result = await session.execute(stmt)
-        return [_to_dict(r) for r in result.scalars().all()]
+        return [Role.model_validate(r) for r in result.scalars().all()]
 
 
-async def fetch_role(role_id: int) -> dict | None:
+async def fetch_role(role_id: int) -> Role | None:
     async with get_session() as session:
         result = await session.execute(select(RoleRow).where(RoleRow.id == role_id))
         row = result.scalar_one_or_none()
-        return _to_dict(row) if row else None
+        return Role.model_validate(row) if row else None
 
 
 async def insert_role(name: str, description: str = "") -> int:
@@ -786,14 +840,16 @@ async def delete_role(role_id: int) -> None:
 
 # ── Role Social Accounts ────────────────────────────────────────
 
-async def fetch_role_accounts(role_id: int, enabled_only: bool = False) -> list[dict]:
+async def fetch_role_accounts(
+    role_id: int, enabled_only: bool = False,
+) -> list[RoleSocialAccount]:
     async with get_session() as session:
         stmt = select(RoleSocialAccountRow).where(RoleSocialAccountRow.role_id == role_id)
         if enabled_only:
             stmt = stmt.where(RoleSocialAccountRow.enabled.is_(True))
         stmt = stmt.order_by(RoleSocialAccountRow.platform, RoleSocialAccountRow.display_name)
         result = await session.execute(stmt)
-        return [_to_dict(r) for r in result.scalars().all()]
+        return [RoleSocialAccount.model_validate(r) for r in result.scalars().all()]
 
 
 async def insert_role_account(
@@ -842,6 +898,57 @@ async def delete_role_account(account_id: int) -> None:
         await session.execute(
             text("DELETE FROM role_social_accounts WHERE id = :id"), {"id": account_id}
         )
+        await session.commit()
+
+
+# ── Users ───────────────────────────────────────────────────────
+
+async def fetch_users() -> list[User]:
+    async with get_session() as session:
+        result = await session.execute(select(UserRow).order_by(UserRow.created_at.asc()))
+        return [User.model_validate(r) for r in result.scalars().all()]
+
+
+async def fetch_user(user_id: int) -> User | None:
+    async with get_session() as session:
+        result = await session.execute(select(UserRow).where(UserRow.id == user_id))
+        row = result.scalar_one_or_none()
+        return User.model_validate(row) if row else None
+
+
+async def fetch_user_by_email(email: str) -> User | None:
+    async with get_session() as session:
+        result = await session.execute(select(UserRow).where(UserRow.email == email))
+        row = result.scalar_one_or_none()
+        return User.model_validate(row) if row else None
+
+
+async def insert_user(email: str, hashed_password: str, role: str = "editor") -> int:
+    async with get_session() as session:
+        result = await session.execute(
+            insert(UserRow)
+            .values(email=email, hashed_password=hashed_password, role=role)
+            .returning(UserRow.id)
+        )
+        uid = result.scalar_one()
+        await session.commit()
+        return uid
+
+
+async def update_user(user_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = func.now()
+    async with get_session() as session:
+        await session.execute(
+            update(UserRow).where(UserRow.id == user_id).values(**fields)
+        )
+        await session.commit()
+
+
+async def delete_user(user_id: int) -> None:
+    async with get_session() as session:
+        await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
         await session.commit()
 
 

@@ -197,7 +197,7 @@ async def process_intents(
     batch_id: str,
     role_id: int | None = None,
 ) -> dict:
-    """Full pipeline: dedup → embed → cluster → score → persist.
+    """Full pipeline: dedup → embed → match-existing-clusters → cluster leftovers → score → persist.
 
     Returns summary dict with counts.
     """
@@ -224,9 +224,85 @@ async def process_intents(
     for intent in intents:
         intent.volume_hint = max(intent.volume_hint, 0)
 
-    # 6. Cluster
+    # 6a. First match new intents against EXISTING clusters in the DB (same role).
+    #     This prevents micro-cluster fragmentation across runs.
+    existing = await db.fetch_clusters_with_centroids(role_id=role_id)
+    leftover_intents: list[RawIntent] = []
+    leftover_embeddings: list[list[float]] = []
+    matched_per_cluster: dict[int, list[tuple[RawIntent, list[float]]]] = {}
+    matched_total = 0
+
+    if existing:
+        for intent, emb in zip(intents, embeddings):
+            vec = np.array(emb, dtype=np.float32)
+            best_id, best_sim, best_centroid, best_count = None, 0.0, None, 0
+            for cl in existing:
+                if not cl.get("centroid"):
+                    continue
+                cvec = np.array(cl["centroid"], dtype=np.float32)
+                sim = _cosine_sim(vec, cvec)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_id = cl["id"]
+                    best_centroid = cvec
+                    best_count = cl.get("intent_count") or 0
+            if best_id is not None and best_sim >= CLUSTER_SIM:
+                matched_per_cluster.setdefault(best_id, []).append((intent, emb))
+            else:
+                leftover_intents.append(intent)
+                leftover_embeddings.append(emb)
+        log.info(
+            "Matched {} intents to {} existing clusters; {} leftovers",
+            sum(len(v) for v in matched_per_cluster.values()),
+            len(matched_per_cluster),
+            len(leftover_intents),
+        )
+    else:
+        leftover_intents, leftover_embeddings = list(intents), list(embeddings)
+
+    # Persist matches into existing clusters (and recompute centroids)
+    matched_total = 0
+    for cluster_id, items in matched_per_cluster.items():
+        existing_cl = next(c for c in existing if c["id"] == cluster_id)
+        existing_count = existing_cl.get("intent_count") or 0
+        centroid = np.array(existing_cl["centroid"], dtype=np.float32)
+        for intent, emb in items:
+            evec = np.array(emb, dtype=np.float32)
+            existing_count += 1
+            centroid = (centroid * (existing_count - 1) + evec) / existing_count
+            score_val = _score_intent(intent)
+            await db.insert_intent(
+                title=intent.title,
+                embedding=emb,
+                source=intent.source,
+                source_url=intent.source_url,
+                snippet=intent.snippet,
+                volume_hint=intent.volume_hint,
+                priority_score=score_val,
+                cluster_id=cluster_id,
+                is_pillar=False,
+                batch_id=batch_id,
+                role_id=role_id,
+            )
+            matched_total += 1
+        await db.update_cluster_centroid(cluster_id, centroid.tolist(), existing_count)
+
+    # 6b. Cluster the leftovers among themselves
+    if not leftover_intents:
+        log.info(
+            "All {} intents absorbed into existing clusters", matched_total,
+        )
+        stats_after = await db.fetch_intent_stats()  # refresh after writes
+        return {
+            "total": len(raw_intents),
+            "clusters": 0,
+            "intents": matched_total,
+        }
+
+    intents = leftover_intents
+    embeddings = leftover_embeddings
     clusters = _cluster_intents(intents, embeddings)
-    log.info("Formed {} clusters from {} intents", len(clusters), len(intents))
+    log.info("Formed {} new clusters from {} leftover intents", len(clusters), len(intents))
 
     # 7. Name clusters via GPT
     names = await _name_clusters(clusters)
@@ -279,12 +355,12 @@ async def process_intents(
 
     total_intents = sum(len(cl["intents"]) for cl in clusters)
     log.info(
-        "Persisted {} clusters with {} intents (from {} raw)",
-        len(clusters), total_intents, len(raw_intents),
+        "Persisted {} new clusters with {} intents + {} into existing (from {} raw)",
+        len(clusters), total_intents, matched_total, len(raw_intents),
     )
 
     return {
         "total": len(raw_intents),
         "clusters": len(clusters),
-        "intents": total_intents,
+        "intents": total_intents + matched_total,
     }

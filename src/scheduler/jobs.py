@@ -37,19 +37,19 @@ PUBLISHER_REGISTRY = {
 }
 
 
-async def _build_publishers_for_role(role: dict | None) -> list:
+async def _build_publishers_for_role(role) -> list:
     """Construct publisher instances from a role's enabled social accounts."""
     if not role:
         return []
-    accounts = await db.fetch_role_accounts(role["id"], enabled_only=True)
+    accounts = await db.fetch_role_accounts(role.id, enabled_only=True)
     publishers = []
     for acc in accounts:
-        cls = PUBLISHER_REGISTRY.get(acc["platform"])
+        cls = PUBLISHER_REGISTRY.get(acc.platform)
         if not cls:
-            log.warning("Unknown platform '{}' for role '{}'", acc["platform"], role["slug"])
+            log.warning("Unknown platform '{}' for role '{}'", acc.platform, role.slug)
             continue
-        creds = dict(acc.get("credentials") or {})
-        publishers.append(cls(credentials=creds, display_name=acc.get("display_name", "")))
+        creds = dict(acc.credentials or {})
+        publishers.append(cls(credentials=creds, display_name=acc.display_name))
     # WeChat publisher is currently a stub but always runs to log content readiness
     publishers.append(WechatPublisher())
     return publishers
@@ -393,12 +393,12 @@ async def publish_approved(content_id: str) -> None:
 
     publishers = await _build_publishers_for_role(role)
     if not publishers:
-        log.warning("Role '{}' has no enabled social accounts", role["slug"])
+        log.warning("Role '{}' has no enabled social accounts", role.slug)
         return
 
     pkg = _row_to_package(row)
     cta_variant = await get_preferred_variant()
-    log.info("Using CTA variant '{}' (A/B winner) for role '{}'", cta_variant, role["slug"])
+    log.info("Using CTA variant '{}' (A/B winner) for role '{}'", cta_variant, role.slug)
 
     results: list[PublishResult | Exception] = await asyncio.gather(
         *[p.publish(pkg, cta_variant) for p in publishers],
@@ -594,28 +594,28 @@ async def intent_mining_pipeline(role_id: int | None = None) -> None:
 
         for role in roles:
             seeds = [
-                k["keyword"]
-                for k in await db.fetch_seed_keywords(role_id=role["id"], enabled_only=True)
+                k.keyword
+                for k in await db.fetch_seed_keywords(role_id=role.id, enabled_only=True)
             ]
             if not seeds:
-                log.warning("Role '{}' has no enabled seed keywords — skipping", role["slug"])
+                log.warning("Role '{}' has no enabled seed keywords — skipping", role.slug)
                 continue
 
             batch_id = str(uuid.uuid4())
             log.info(
                 "[role={}] Mining intents from {} seeds (batch={})",
-                role["slug"], len(seeds), batch_id[:8],
+                role.slug, len(seeds), batch_id[:8],
             )
 
             raw_intents = await mine_intents(seeds)
             if not raw_intents:
-                log.warning("[role={}] No intents mined", role["slug"])
+                log.warning("[role={}] No intents mined", role.slug)
                 continue
 
-            summary = await process_intents(raw_intents, batch_id, role_id=role["id"])
+            summary = await process_intents(raw_intents, batch_id, role_id=role.id)
             log.info(
                 "[role={}] {} raw → {} new intents in {} clusters",
-                role["slug"], summary["total"], summary["intents"], summary["clusters"],
+                role.slug, summary["total"], summary["intents"], summary["clusters"],
             )
 
         stats = await db.fetch_intent_stats()

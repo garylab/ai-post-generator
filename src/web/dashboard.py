@@ -1,57 +1,50 @@
 from __future__ import annotations
 
-import secrets
-from pathlib import Path
-from typing import Annotated
-
 import asyncio
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 
-from src.config import settings
 from src.storage.database import (
     delete_role,
     delete_role_account,
     delete_seed_keyword,
+    delete_user,
     fetch_content,
     fetch_role,
     fetch_role_accounts,
     fetch_roles,
     fetch_seed_keywords,
+    fetch_user,
+    fetch_user_by_email,
+    fetch_users,
     get_session,
     insert_role,
     insert_role_account,
     insert_seed_keyword,
+    insert_user,
     toggle_role_account,
     toggle_seed_keyword,
     update_role,
     update_role_account,
+    update_user,
+)
+from src.web.auth import (
+    current_user,
+    hash_password,
+    require_admin,
+    require_user,
+    verify_password,
 )
 
-_basic = HTTPBasic()
+# Public routes (no auth) — login, logout
+public_router = APIRouter()
 
-
-def _auth(creds: Annotated[HTTPBasicCredentials, Depends(_basic)]) -> None:
-    if not settings.dashboard_password:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "DASHBOARD_PASSWORD is not configured",
-        )
-    if not secrets.compare_digest(
-        creds.password.encode("utf-8"), settings.dashboard_password.encode("utf-8")
-    ):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "Invalid password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-
-router = APIRouter(dependencies=[Depends(_auth)])
+# Protected — every route below requires a logged-in user
+router = APIRouter(dependencies=[Depends(require_user)])
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -537,3 +530,94 @@ async def publishes_list(request: Request, page: int = 1, per_page: int = 50):
         request, "publishes.html",
         {"rows": rows, "page": page, "per_page": per_page, "total": total, "query": ""},
     )
+
+
+# ── Authentication routes (public) ─────────────────────────────
+
+@public_router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str | None = None):
+    if request.session.get("user_id"):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"error": error})
+
+
+@public_router.post("/login")
+async def login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
+    user = await fetch_user_by_email(email.strip().lower())
+    if not user or not verify_password(password, user.hashed_password):
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"error": "Invalid email or password", "email": email},
+            status_code=401,
+        )
+    request.session["user_id"] = user.id
+    return RedirectResponse("/", status_code=303)
+
+
+@public_router.post("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+
+# ── Users management (admin only) ──────────────────────────────
+
+@router.get("/dashboard/users", response_class=HTMLResponse)
+async def users_list(request: Request, _admin: dict = Depends(require_admin)):
+    rows = await fetch_users()
+    return templates.TemplateResponse(request, "users.html", {"rows": rows})
+
+
+@router.post("/dashboard/users/add")
+async def users_add(
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form("editor"),
+    _admin: dict = Depends(require_admin),
+):
+    if role not in ("admin", "editor"):
+        raise HTTPException(400, "Invalid role")
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    existing = await fetch_user_by_email(email.strip().lower())
+    if existing:
+        raise HTTPException(400, f"User with email {email} already exists")
+    await insert_user(email.strip().lower(), hash_password(password), role)
+    return RedirectResponse("/dashboard/users", status_code=303)
+
+
+@router.post("/dashboard/users/{user_id}/update")
+async def users_update(
+    user_id: int,
+    email: str = Form(...),
+    role: str = Form(...),
+    password: str = Form(""),
+    _admin: dict = Depends(require_admin),
+):
+    if role not in ("admin", "editor"):
+        raise HTTPException(400, "Invalid role")
+    fields: dict = {"email": email.strip().lower(), "role": role}
+    if password:
+        if len(password) < 8:
+            raise HTTPException(400, "Password must be at least 8 characters")
+        fields["hashed_password"] = hash_password(password)
+    await update_user(user_id, **fields)
+    return RedirectResponse("/dashboard/users", status_code=303)
+
+
+@router.post("/dashboard/users/{user_id}/delete")
+async def users_delete(
+    user_id: int,
+    request: Request,
+    admin: dict = Depends(require_admin),
+):
+    if user_id == admin.id:
+        raise HTTPException(400, "Cannot delete yourself")
+    # Don't allow deleting the last admin
+    all_users = await fetch_users()
+    admins = [u for u in all_users if u.role == "admin"]
+    target = await fetch_user(user_id)
+    if target and target.role == "admin" and len(admins) <= 1:
+        raise HTTPException(400, "Cannot delete the last admin")
+    await delete_user(user_id)
+    return RedirectResponse("/dashboard/users", status_code=303)

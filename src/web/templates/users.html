@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% set active = 'users' %}
+{% from "base.html" import modal %}
+{% block page_title %}Users{% endblock %}
+{% block content %}
+{% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
+{% set btn_primary = "bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium rounded-md px-3 py-1.5" %}
+
+<div class="flex items-center justify-between">
+  <div>
+    <h2 class="text-lg font-semibold">Users <span class="text-muted font-normal">({{ rows|length }})</span></h2>
+    <p class="text-muted text-xs mt-1">Admins can manage users; editors can use the dashboard.</p>
+  </div>
+  <button class="{{ btn_primary }}" onclick="openModal('modal-add-user')">+ New user</button>
+</div>
+
+<div class="bg-panel border border-border rounded-lg overflow-hidden">
+  <table class="w-full">
+    <thead class="bg-slate-800/50 text-muted text-[11px] uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Email</th>
+        <th class="px-3 py-2 text-left font-medium">Role</th>
+        <th class="px-3 py-2 text-left font-medium">Created</th>
+        <th class="px-3 py-2 text-left font-medium">Updated</th>
+        <th class="px-3 py-2 text-right font-medium">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      {% for u in rows %}
+      <tr class="hover:bg-slate-800/30">
+        <td class="px-3 py-2 font-medium">{{ u.email }}</td>
+        <td class="px-3 py-2">
+          {% if u.role == 'admin' %}
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-900/40 text-violet-300">admin</span>
+          {% else %}
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-700/40 text-slate-300">editor</span>
+          {% endif %}
+        </td>
+        <td class="px-3 py-2 text-muted">{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '' }}</td>
+        <td class="px-3 py-2 text-muted">{{ u.updated_at.strftime('%Y-%m-%d %H:%M') if u.updated_at else '' }}</td>
+        <td class="px-3 py-2 text-right space-x-2">
+          <button class="text-sky-400 hover:underline" onclick="openModal('modal-edit-user-{{ u.id }}')">Edit</button>
+          <form method="post" action="/dashboard/users/{{ u.id }}/delete" class="inline"
+                onsubmit="return confirm('Delete user &quot;{{ u.email }}&quot;?');">
+            <button class="text-rose-400 hover:underline">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% call modal('modal-add-user', 'Add user') %}
+<form method="post" action="/dashboard/users/add" class="space-y-3">
+  <label class="block">
+    <span class="text-xs text-muted">Email *</span>
+    <input type="email" name="email" required class="{{ inp }} w-full mt-1">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Password * (min 8 chars)</span>
+    <input type="password" name="password" required minlength="8" class="{{ inp }} w-full mt-1">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Role</span>
+    <select name="role" class="{{ inp }} w-full mt-1">
+      <option value="editor">editor</option>
+      <option value="admin">admin</option>
+    </select>
+  </label>
+  <div class="flex justify-end gap-2 pt-2">
+    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-add-user')">Cancel</button>
+    <button class="{{ btn_primary }}">Create</button>
+  </div>
+</form>
+{% endcall %}
+
+{% for u in rows %}
+{% call modal('modal-edit-user-' ~ u.id, 'Edit user') %}
+<form method="post" action="/dashboard/users/{{ u.id }}/update" class="space-y-3">
+  <label class="block">
+    <span class="text-xs text-muted">Email</span>
+    <input type="email" name="email" value="{{ u.email }}" required class="{{ inp }} w-full mt-1">
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">Role</span>
+    <select name="role" class="{{ inp }} w-full mt-1">
+      <option value="editor" {% if u.role == 'editor' %}selected{% endif %}>editor</option>
+      <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
+    </select>
+  </label>
+  <label class="block">
+    <span class="text-xs text-muted">New password (leave blank to keep current)</span>
+    <input type="password" name="password" minlength="8" class="{{ inp }} w-full mt-1">
+  </label>
+  <div class="flex justify-end gap-2 pt-2">
+    <button type="button" class="text-muted hover:text-white px-3 py-1.5" onclick="closeModal('modal-edit-user-{{ u.id }}')">Cancel</button>
+    <button class="{{ btn_primary }}">Save</button>
+  </div>
+</form>
+{% endcall %}
+{% endfor %}
+{% endblock %}
