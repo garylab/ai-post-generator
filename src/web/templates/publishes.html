@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'publishes' %}
-{% from "base.html" import paginate %}
+{% from "base.html" import paginate, sort_header %}
 {% block page_title %}Publishes{% endblock %}
 {% block content %}
 <h2 class="text-lg font-semibold">Publishes <span class="text-muted font-normal">({{ total }})</span></h2>
@@ -14,24 +14,24 @@
         <th class="px-3 py-2 text-left font-medium">Platform</th>
         <th class="px-3 py-2 text-left font-medium">URL</th>
         <th class="px-3 py-2 text-left font-medium">CTA</th>
-        <th class="px-3 py-2 text-left font-medium">CTR</th>
-        <th class="px-3 py-2 text-left font-medium">Clicks</th>
-        <th class="px-3 py-2 text-left font-medium">Signups</th>
-        <th class="px-3 py-2 text-left font-medium">Published</th>
+        {{ sort_header('CTR', 'ctr', sort_key, sort_dir, '/dashboard/publishes', filter_query) }}
+        {{ sort_header('Clicks', 'clicks', sort_key, sort_dir, '/dashboard/publishes', filter_query) }}
+        {{ sort_header('Signups', 'signups', sort_key, sort_dir, '/dashboard/publishes', filter_query) }}
+        {{ sort_header('Published', 'published_at', sort_key, sort_dir, '/dashboard/publishes', filter_query) }}
       </tr>
     </thead>
     <tbody class="divide-y divide-border">
       {% for r in rows %}
       <tr class="hover:bg-slate-800/30">
-        <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
-        <td class="px-3 py-2 text-muted">{{ r.cluster or '-' }}</td>
-        <td class="px-3 py-2">{{ r.platform }}</td>
-        <td class="px-3 py-2">{% if r.published_url %}<a class="text-sky-400 hover:underline" href="{{ r.published_url }}" target="_blank">link</a>{% else %}-{% endif %}</td>
-        <td class="px-3 py-2">{{ r.cta_variant or '-' }}</td>
-        <td class="px-3 py-2">{{ r.ctr }}</td>
-        <td class="px-3 py-2">{{ r.clicks }}</td>
-        <td class="px-3 py-2">{{ r.signups }}</td>
-        <td class="px-3 py-2 text-muted">{{ r.published_at.strftime('%Y-%m-%d %H:%M') if r.published_at else '' }}</td>
+        <td class="px-3 py-2 align-top"><a class="text-sky-400 hover:underline break-words whitespace-normal" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+        <td class="px-3 py-2 align-top text-muted whitespace-nowrap">{{ r.cluster or '-' }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.platform }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{% if r.published_url %}<a class="text-sky-400 hover:underline" href="{{ r.published_url }}" target="_blank">link</a>{% else %}-{% endif %}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.cta_variant or '-' }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.ctr }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.clicks }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.signups }}</td>
+        <td class="px-3 py-2 align-top text-muted whitespace-nowrap">{{ r.published_at.strftime('%Y-%m-%d %H:%M') if r.published_at else '' }}</td>
       </tr>
       {% endfor %}
     </tbody>

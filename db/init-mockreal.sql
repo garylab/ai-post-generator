@@ -476,3 +476,36 @@ ALTER TABLE content ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id
 CREATE INDEX IF NOT EXISTS idx_intents_role ON intents(role_id);
 CREATE INDEX IF NOT EXISTS idx_clusters_role ON intent_clusters(role_id);
 CREATE INDEX IF NOT EXISTS idx_content_role ON content(role_id);
+
+-- ============================================================
+-- Numeric / datetime indexes for dashboard sorting & filtering
+-- ============================================================
+-- content
+CREATE INDEX IF NOT EXISTS idx_content_iteration_count ON content(iteration_count DESC);
+CREATE INDEX IF NOT EXISTS idx_content_updated_at ON content(updated_at DESC);
+
+-- intent_clusters
+CREATE INDEX IF NOT EXISTS idx_iclusters_intent_count ON intent_clusters(intent_count DESC);
+CREATE INDEX IF NOT EXISTS idx_iclusters_covered_count ON intent_clusters(covered_count DESC);
+CREATE INDEX IF NOT EXISTS idx_iclusters_created_at ON intent_clusters(created_at DESC);
+
+-- performance
+CREATE INDEX IF NOT EXISTS idx_perf_clicks ON performance(clicks DESC);
+CREATE INDEX IF NOT EXISTS idx_perf_signups ON performance(signups DESC);
+
+-- roles / users
+CREATE INDEX IF NOT EXISTS idx_roles_created_at ON roles(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updated_at DESC);
+
+-- seed_keywords / role_social_accounts
+CREATE INDEX IF NOT EXISTS idx_seed_kw_created_at ON seed_keywords(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rsa_created_at ON role_social_accounts(created_at DESC);
+
+-- ab_results
+CREATE INDEX IF NOT EXISTS idx_ab_confidence ON ab_results(confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_ab_computed_at ON ab_results(computed_at DESC);
+
+-- prompts / settings
+CREATE INDEX IF NOT EXISTS idx_prompts_updated_at ON prompts(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_settings_updated_at ON settings(updated_at DESC);

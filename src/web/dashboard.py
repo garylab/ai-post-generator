@@ -75,6 +75,21 @@ def _page_params(page: int, per_page: int = 50) -> tuple[int, int, int]:
     return page, per_page, (page - 1) * per_page
 
 
+def _resolve_sort(
+    sort: str | None,
+    direction: str | None,
+    allowed: dict[str, str],
+    default_key: str,
+    default_dir: str = "desc",
+) -> tuple[str, str, str]:
+    """Validate sort/direction against whitelist; return (ORDER BY SQL, ui_key, ui_dir)."""
+    key = sort if (sort in allowed) else default_key
+    d = (direction or "").lower()
+    if d not in ("asc", "desc"):
+        d = default_dir
+    return f"{allowed[key]} {d.upper()}", key, d
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     stats = await _fetch(
@@ -127,24 +142,40 @@ async def content_list(
     cluster: str | None = None,
     page: int = 1,
     per_page: int = 50,
+    sort: str | None = None,
+    dir: str | None = None,
 ):
     where = []
     params: dict = {}
     if status:
-        where.append("status::text = :status")
+        where.append("c.status::text = :status")
         params["status"] = status
     if cluster:
-        where.append("cluster = :cluster")
+        where.append("c.cluster = :cluster")
         params["cluster"] = cluster
     clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+    sort_cols = {
+        "title": "c.title",
+        "cluster": "c.cluster",
+        "status": "c.status::text",
+        "score": "c.score",
+        "iteration_count": "c.iteration_count",
+        "created_at": "c.created_at",
+        "updated_at": "c.updated_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "created_at", "desc")
+
     page, per_page, offset = _page_params(page, per_page)
-    total = await _count(f"SELECT COUNT(*) FROM content {clause}", params)
+    total = await _count(f"SELECT COUNT(*) FROM content c {clause}", params)
     rows = await _fetch(
         f"""
-        SELECT content_id, title, cluster, status::text AS status, score,
-               iteration_count, created_at, updated_at
-        FROM content {clause}
-        ORDER BY created_at DESC LIMIT :lim OFFSET :off
+        SELECT c.content_id, c.title, c.cluster, c.status::text AS status, c.score,
+               c.iteration_count, c.created_at, c.updated_at,
+               ic.id AS cluster_id, ic.name AS cluster_name
+        FROM content c LEFT JOIN intent_clusters ic ON c.cluster = ic.slug
+        {clause}
+        ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {**params, "lim": per_page, "off": offset},
     )
@@ -154,9 +185,11 @@ async def content_list(
     clusters = await _fetch(
         "SELECT DISTINCT cluster AS c FROM content WHERE cluster IS NOT NULL ORDER BY c"
     )
-    qs = []
-    if status: qs.append(f"status={status}")
-    if cluster: qs.append(f"cluster={cluster}")
+    filter_qs = []
+    if status: filter_qs.append(f"status={status}")
+    if cluster: filter_qs.append(f"cluster={cluster}")
+    filter_q = "&".join(filter_qs)
+    full_q = "&".join(filter_qs + [f"sort={sort_key}", f"dir={sort_dir}"])
     return templates.TemplateResponse(
         request,
         "content_list.html",
@@ -167,7 +200,10 @@ async def content_list(
             "selected_status": status,
             "selected_cluster": cluster,
             "page": page, "per_page": per_page, "total": total,
-            "query": "&".join(qs),
+            "query": full_q,           # used by paginate() so sort survives page changes
+            "filter_query": filter_q,  # used by sort_header() (no sort/dir)
+            "sort_key": sort_key,
+            "sort_dir": sort_dir,
         },
     )
 
@@ -211,12 +247,26 @@ async def intents_list(
     status: str | None = None,
     page: int = 1,
     per_page: int = 50,
+    sort: str | None = None,
+    dir: str | None = None,
 ):
     where = ""
     params: dict = {}
     if status:
         where = "WHERE i.status::text = :status"
         params["status"] = status
+
+    sort_cols = {
+        "title": "i.title",
+        "source": "i.source",
+        "cluster_slug": "ic.slug",
+        "status": "i.status::text",
+        "priority_score": "i.priority_score",
+        "is_pillar": "i.is_pillar",
+        "created_at": "i.created_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "created_at", "desc")
+
     page, per_page, offset = _page_params(page, per_page)
     total = await _count(
         f"SELECT COUNT(*) FROM intents i LEFT JOIN intent_clusters ic ON i.cluster_id = ic.id {where}",
@@ -226,14 +276,16 @@ async def intents_list(
         f"""
         SELECT i.id, i.title, i.source, i.status::text AS status,
                i.priority_score, i.is_pillar, i.created_at,
-               ic.slug AS cluster_slug
+               i.cluster_id, ic.slug AS cluster_slug, ic.name AS cluster_name
         FROM intents i LEFT JOIN intent_clusters ic ON i.cluster_id = ic.id
         {where}
-        ORDER BY i.created_at DESC LIMIT :lim OFFSET :off
+        ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {**params, "lim": per_page, "off": offset},
     )
     statuses = await _fetch("SELECT DISTINCT status::text AS s FROM intents ORDER BY s")
+    filter_q = f"status={status}" if status else ""
+    full_q = "&".join(([filter_q] if filter_q else []) + [f"sort={sort_key}", f"dir={sort_dir}"])
     return templates.TemplateResponse(
         request,
         "intents.html",
@@ -242,7 +294,10 @@ async def intents_list(
             "statuses": [r["s"] for r in statuses],
             "selected_status": status,
             "page": page, "per_page": per_page, "total": total,
-            "query": (f"status={status}" if status else ""),
+            "query": full_q,
+            "filter_query": filter_q,
+            "sort_key": sort_key,
+            "sort_dir": sort_dir,
         },
     )
 
@@ -275,22 +330,43 @@ async def cluster_generate(cluster_id: int):
 
 
 @router.get("/dashboard/clusters", response_class=HTMLResponse)
-async def clusters_list(request: Request, page: int = 1, per_page: int = 50):
+async def clusters_list(
+    request: Request,
+    page: int = 1,
+    per_page: int = 50,
+    sort: str | None = None,
+    dir: str | None = None,
+):
+    sort_cols = {
+        "name": "name",
+        "slug": "slug",
+        "status": "status::text",
+        "intent_count": "intent_count",
+        "covered_count": "covered_count",
+        "priority_score": "priority_score",
+        "created_at": "created_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "priority_score", "desc")
+
     page, per_page, offset = _page_params(page, per_page)
     total = await _count("SELECT COUNT(*) FROM intent_clusters")
     rows = await _fetch(
-        """
+        f"""
         SELECT id, name, slug, status::text AS status,
                intent_count, covered_count, priority_score, created_at
         FROM intent_clusters
-        ORDER BY priority_score DESC, created_at DESC
-        LIMIT :lim OFFSET :off
+        ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {"lim": per_page, "off": offset},
     )
+    full_q = f"sort={sort_key}&dir={sort_dir}"
     return templates.TemplateResponse(
         request, "clusters.html",
-        {"rows": rows, "page": page, "per_page": per_page, "total": total, "query": ""},
+        {
+            "rows": rows, "page": page, "per_page": per_page, "total": total,
+            "query": full_q, "filter_query": "",
+            "sort_key": sort_key, "sort_dir": sort_dir,
+        },
     )
 
 
@@ -307,13 +383,26 @@ PLATFORM_FIELDS = {
 
 
 @router.get("/dashboard/roles", response_class=HTMLResponse)
-async def roles_list(request: Request, page: int = 1, per_page: int = 50):
+async def roles_list(
+    request: Request,
+    page: int = 1,
+    per_page: int = 50,
+    sort: str | None = None,
+    dir: str | None = None,
+):
+    sort_cols = {
+        "name": "name",
+        "enabled": "enabled",
+        "created_at": "created_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "created_at", "asc")
+
     page, per_page, offset = _page_params(page, per_page)
     total = await _count("SELECT COUNT(*) FROM roles")
     rows = await _fetch(
-        """
+        f"""
         SELECT id, slug, name, description, enabled, created_at
-        FROM roles ORDER BY created_at ASC LIMIT :lim OFFSET :off
+        FROM roles ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {"lim": per_page, "off": offset},
     )
@@ -327,11 +416,14 @@ async def roles_list(request: Request, page: int = 1, per_page: int = 50):
         """
     )
     counts_by_id = {c["id"]: c for c in counts}
+    full_q = f"sort={sort_key}&dir={sort_dir}"
     return templates.TemplateResponse(
         request, "roles.html",
         {
             "rows": rows, "counts": counts_by_id,
-            "page": page, "per_page": per_page, "total": total, "query": "",
+            "page": page, "per_page": per_page, "total": total,
+            "query": full_q, "filter_query": "",
+            "sort_key": sort_key, "sort_dir": sort_dir,
         },
     )
 
@@ -538,11 +630,29 @@ async def run_stage(stage: str = Form(...)):
 
 
 @router.get("/dashboard/publishes", response_class=HTMLResponse)
-async def publishes_list(request: Request, page: int = 1, per_page: int = 50):
+async def publishes_list(
+    request: Request,
+    page: int = 1,
+    per_page: int = 50,
+    sort: str | None = None,
+    dir: str | None = None,
+):
+    sort_cols = {
+        "title": "c.title",
+        "cluster": "c.cluster",
+        "platform": "pl.platform::text",
+        "cta_variant": "pl.cta_variant::text",
+        "ctr": "COALESCE(p.ctr, 0)",
+        "clicks": "COALESCE(p.clicks, 0)",
+        "signups": "COALESCE(p.signups, 0)",
+        "published_at": "pl.published_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "published_at", "desc")
+
     page, per_page, offset = _page_params(page, per_page)
     total = await _count("SELECT COUNT(*) FROM publish_logs")
     rows = await _fetch(
-        """
+        f"""
         SELECT pl.content_id, c.title, c.cluster,
                pl.platform::text AS platform, pl.published_url,
                pl.cta_variant::text AS cta_variant, pl.published_at,
@@ -553,13 +663,18 @@ async def publishes_list(request: Request, page: int = 1, per_page: int = 50):
         JOIN content c ON pl.content_id = c.content_id
         LEFT JOIN performance p
           ON pl.content_id = p.content_id AND pl.platform = p.platform
-        ORDER BY pl.published_at DESC LIMIT :lim OFFSET :off
+        ORDER BY {order_by} LIMIT :lim OFFSET :off
         """,
         {"lim": per_page, "off": offset},
     )
+    full_q = f"sort={sort_key}&dir={sort_dir}"
     return templates.TemplateResponse(
         request, "publishes.html",
-        {"rows": rows, "page": page, "per_page": per_page, "total": total, "query": ""},
+        {
+            "rows": rows, "page": page, "per_page": per_page, "total": total,
+            "query": full_q, "filter_query": "",
+            "sort_key": sort_key, "sort_dir": sort_dir,
+        },
     )
 
 
@@ -594,9 +709,29 @@ async def logout(request: Request):
 # ── Users management (admin only) ──────────────────────────────
 
 @router.get("/dashboard/users", response_class=HTMLResponse)
-async def users_list(request: Request, _admin: dict = Depends(require_admin)):
-    rows = await fetch_users()
-    return templates.TemplateResponse(request, "users.html", {"rows": rows})
+async def users_list(
+    request: Request,
+    sort: str | None = None,
+    dir: str | None = None,
+    _admin: dict = Depends(require_admin),
+):
+    sort_cols = {
+        "email": "email",
+        "role": "role",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+    }
+    order_by, sort_key, sort_dir = _resolve_sort(sort, dir, sort_cols, "created_at", "asc")
+    rows = await _fetch(
+        f"""
+        SELECT id, email, hashed_password, role, created_at, updated_at
+        FROM users ORDER BY {order_by}
+        """
+    )
+    return templates.TemplateResponse(
+        request, "users.html",
+        {"rows": rows, "sort_key": sort_key, "sort_dir": sort_dir, "filter_query": ""},
+    )
 
 
 @router.post("/dashboard/users/add")

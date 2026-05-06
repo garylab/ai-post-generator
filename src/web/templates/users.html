@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'users' %}
-{% from "base.html" import modal %}
+{% from "base.html" import modal, sort_header %}
 {% block page_title %}Users{% endblock %}
 {% block content %}
 {% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
@@ -20,8 +20,7 @@
       <tr>
         <th class="px-3 py-2 text-left font-medium">Email</th>
         <th class="px-3 py-2 text-left font-medium">Role</th>
-        <th class="px-3 py-2 text-left font-medium">Created</th>
-        <th class="px-3 py-2 text-left font-medium">Updated</th>
+        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/users', filter_query) }}
         <th class="px-3 py-2 text-right font-medium">Actions</th>
       </tr>
     </thead>
@@ -37,7 +36,6 @@
           {% endif %}
         </td>
         <td class="px-3 py-2 text-muted">{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '' }}</td>
-        <td class="px-3 py-2 text-muted">{{ u.updated_at.strftime('%Y-%m-%d %H:%M') if u.updated_at else '' }}</td>
         <td class="px-3 py-2 text-right space-x-2">
           <button class="text-sky-400 hover:underline" onclick="openModal('modal-edit-user-{{ u.id }}')">Edit</button>
           <form method="post" action="/dashboard/users/{{ u.id }}/delete" class="inline"

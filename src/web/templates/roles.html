@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'roles' %}
-{% from "base.html" import pill, modal, paginate %}
+{% from "base.html" import pill, modal, paginate, sort_header %}
 {% block page_title %}Roles{% endblock %}
 {% block content %}
 {% set inp = "bg-bg border border-border rounded-md px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500" %}
@@ -40,7 +40,7 @@
         <th class="px-3 py-2 text-left font-medium">Keywords</th>
         <th class="px-3 py-2 text-left font-medium">Accounts</th>
         <th class="px-3 py-2 text-left font-medium">Content</th>
-        <th class="px-3 py-2 text-left font-medium">Created</th>
+        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/roles', filter_query) }}
       </tr>
     </thead>
     <tbody class="divide-y divide-border">

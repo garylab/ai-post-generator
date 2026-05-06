@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'content' %}
-{% from "base.html" import pill, paginate %}
+{% from "base.html" import pill, paginate, sort_header, modal %}
 {% block page_title %}Content{% endblock %}
 {% block content %}
 <h2 class="text-lg font-semibold">Content <span class="text-muted font-normal">({{ total }})</span></h2>
@@ -29,26 +29,88 @@
         <th class="px-3 py-2 text-left font-medium">Title</th>
         <th class="px-3 py-2 text-left font-medium">Cluster</th>
         <th class="px-3 py-2 text-left font-medium">Status</th>
-        <th class="px-3 py-2 text-left font-medium">Score</th>
-        <th class="px-3 py-2 text-left font-medium">Iter</th>
-        <th class="px-3 py-2 text-left font-medium">Created</th>
-        <th class="px-3 py-2 text-left font-medium">Updated</th>
+        {{ sort_header('Score', 'score', sort_key, sort_dir, '/dashboard/content', filter_query) }}
+        {{ sort_header('Iter', 'iteration_count', sort_key, sort_dir, '/dashboard/content', filter_query) }}
+        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/content', filter_query) }}
       </tr>
     </thead>
     <tbody class="divide-y divide-border">
       {% for r in rows %}
       <tr class="hover:bg-slate-800/30">
-        <td class="px-3 py-2"><a class="text-sky-400 hover:underline" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
-        <td class="px-3 py-2 text-muted">{{ r.cluster or '-' }}</td>
-        <td class="px-3 py-2">{{ pill(r.status) }}</td>
-        <td class="px-3 py-2">{{ r.score }}</td>
-        <td class="px-3 py-2 text-muted">{{ r.iteration_count }}</td>
-        <td class="px-3 py-2 text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
-        <td class="px-3 py-2 text-muted">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at else '' }}</td>
+        <td class="px-3 py-2 align-top"><a class="text-sky-400 hover:underline break-words whitespace-normal" href="/dashboard/content/{{ r.content_id }}">{{ r.title }}</a></td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">
+          {% if r.cluster_id %}
+          <button type="button"
+                  class="text-sky-400 hover:underline"
+                  onclick="showClusterIntents({{ r.cluster_id }}, '{{ (r.cluster_name or r.cluster)|replace("'", "\\'") }}')">
+            {{ r.cluster }}
+          </button>
+          {% else %}<span class="text-muted">{{ r.cluster or '-' }}</span>{% endif %}
+        </td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ pill(r.status) }}</td>
+        <td class="px-3 py-2 align-top whitespace-nowrap">{{ r.score }}</td>
+        <td class="px-3 py-2 align-top text-muted whitespace-nowrap">{{ r.iteration_count }}</td>
+        <td class="px-3 py-2 align-top text-muted whitespace-nowrap">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {{ paginate(page, per_page, total, "/dashboard/content", query) }}
+
+{% call modal('modal-cluster-intents', 'Cluster intents', max_w="max-w-3xl") %}
+<div id="cluster-intents-title" class="text-sm text-muted mb-3"></div>
+<div id="cluster-intents-loading" class="text-muted text-sm">Loading…</div>
+<div id="cluster-intents-body" class="hidden max-h-[60vh] overflow-y-auto -mx-1">
+  <table class="w-full text-sm">
+    <thead class="text-[11px] uppercase tracking-wider text-muted">
+      <tr class="border-b border-border">
+        <th class="px-2 py-2 text-left font-medium">Title</th>
+        <th class="px-2 py-2 text-left font-medium">Source</th>
+        <th class="px-2 py-2 text-left font-medium">Status</th>
+        <th class="px-2 py-2 text-left font-medium">Score</th>
+        <th class="px-2 py-2 text-left font-medium">Pillar</th>
+      </tr>
+    </thead>
+    <tbody id="cluster-intents-rows" class="divide-y divide-border"></tbody>
+  </table>
+</div>
+{% endcall %}
+
+<script>
+async function showClusterIntents(clusterId, name) {
+  document.getElementById('cluster-intents-title').textContent = name;
+  document.getElementById('cluster-intents-loading').classList.remove('hidden');
+  document.getElementById('cluster-intents-body').classList.add('hidden');
+  document.getElementById('cluster-intents-rows').innerHTML = '';
+  openModal('modal-cluster-intents');
+  try {
+    const resp = await fetch(`/dashboard/clusters/${clusterId}/intents.json`);
+    const intents = await resp.json();
+    const tbody = document.getElementById('cluster-intents-rows');
+    if (!intents.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="px-2 py-4 text-center text-muted">No intents.</td></tr>';
+    } else {
+      tbody.innerHTML = intents.map(i => `
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-2 py-1.5">${escapeHtml(i.title)}</td>
+          <td class="px-2 py-1.5 text-muted">${escapeHtml(i.source || '')}</td>
+          <td class="px-2 py-1.5"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-700/40 text-slate-300">${escapeHtml(i.status)}</span></td>
+          <td class="px-2 py-1.5">${i.priority_score?.toFixed(1) ?? '-'}</td>
+          <td class="px-2 py-1.5 text-amber-400">${i.is_pillar ? '★' : ''}</td>
+        </tr>
+      `).join('');
+    }
+    document.getElementById('cluster-intents-loading').classList.add('hidden');
+    document.getElementById('cluster-intents-body').classList.remove('hidden');
+  } catch (err) {
+    document.getElementById('cluster-intents-loading').textContent = 'Failed to load: ' + err;
+  }
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+</script>
 {% endblock %}

@@ -12,6 +12,19 @@ import asyncio
 
 from src.storage.models import RawIntent
 from src.utils import serpapi_client
+
+
+def _clean_title(s: str) -> str:
+    """Strip trailing ellipsis (Google SERP truncation marker) and surrounding whitespace."""
+    t = (s or "").strip()
+    # Common truncation suffixes: "…", "...", " …", " ..."
+    while t.endswith(("…", "...")):
+        if t.endswith("…"):
+            t = t[:-1]
+        else:
+            t = t[:-3]
+        t = t.rstrip(" .—-–")
+    return t.strip()
 from loguru import logger as log
 
 
@@ -31,7 +44,7 @@ async def _mine_autocomplete(seed: str) -> list[RawIntent]:
         if not value:
             continue
         results.append(RawIntent(
-            title=value,
+            title=_clean_title(value),
             source="autocomplete",
             source_url=f"autocomplete://{_slugify_url(value)}",
             volume_hint=sug.get("relevance", 500),
@@ -56,7 +69,7 @@ async def _mine_paa(seed: str) -> list[RawIntent]:
         refs = item.get("references", [])
         source_url = refs[0].get("link", "") if refs else ""
         results.append(RawIntent(
-            title=question,
+            title=_clean_title(question),
             source="paa",
             source_url=source_url,
             snippet=snippet,
@@ -84,7 +97,7 @@ async def _mine_forums(seed: str) -> list[RawIntent]:
         engagement = _parse_engagement(item.get("displayed_meta", ""))
         forum_source = item.get("source", "")
         results.append(RawIntent(
-            title=title,
+            title=_clean_title(title),
             source="forums",
             source_url=item.get("link", ""),
             snippet=(item.get("snippet", "") or "")[:300],
@@ -98,7 +111,7 @@ async def _mine_forums(seed: str) -> list[RawIntent]:
                 continue
             sl_engagement = sl.get("answer_count", 0) or 0
             results.append(RawIntent(
-                title=sl_title,
+                title=_clean_title(sl_title),
                 source="forums",
                 source_url=sl.get("link", ""),
                 snippet="",
@@ -119,7 +132,7 @@ async def _mine_trends(seed: str) -> list[RawIntent]:
                 continue
             extracted = int(item.get("extracted_value", 0))
             results.append(RawIntent(
-                title=query,
+                title=_clean_title(query),
                 source="trends",
                 source_url=f"trends://{_slugify_url(query)}",
                 volume_hint=min(extracted / 10, 10) if extracted else 5,
@@ -132,7 +145,7 @@ async def _mine_trends(seed: str) -> list[RawIntent]:
                 continue
             extracted = int(item.get("extracted_value", 0))
             results.append(RawIntent(
-                title=query,
+                title=_clean_title(query),
                 source="trends",
                 source_url=f"trends://{_slugify_url(query)}",
                 volume_hint=min(extracted / 10, 10) if extracted else 3,

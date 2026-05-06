@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'clusters' %}
-{% from "base.html" import pill, paginate, modal %}
+{% from "base.html" import pill, paginate, modal, sort_header %}
 {% block page_title %}Clusters{% endblock %}
 {% block content %}
 <h2 class="text-lg font-semibold">Intent clusters <span class="text-muted font-normal">({{ total }})</span></h2>
@@ -12,10 +12,10 @@
         <th class="px-3 py-2 text-left font-medium">Name</th>
         <th class="px-3 py-2 text-left font-medium">Slug</th>
         <th class="px-3 py-2 text-left font-medium">Status</th>
-        <th class="px-3 py-2 text-left font-medium">Intents</th>
-        <th class="px-3 py-2 text-left font-medium">Covered</th>
-        <th class="px-3 py-2 text-left font-medium">Priority</th>
-        <th class="px-3 py-2 text-left font-medium">Created</th>
+        {{ sort_header('Intents', 'intent_count', sort_key, sort_dir, '/dashboard/clusters', filter_query) }}
+        {{ sort_header('Covered', 'covered_count', sort_key, sort_dir, '/dashboard/clusters', filter_query) }}
+        {{ sort_header('Priority', 'priority_score', sort_key, sort_dir, '/dashboard/clusters', filter_query) }}
+        {{ sort_header('Created', 'created_at', sort_key, sort_dir, '/dashboard/clusters', filter_query) }}
         <th class="px-3 py-2 text-right font-medium">Actions</th>
       </tr>
     </thead>
